@@ -69,12 +69,13 @@ class image_converter:
 
 
     on_global_std = Float64MultiArray()
-    on_global_std.data = self.calcu_fk_end_pos(joint1.data, joint2.data, joint3.data, joint4.data)
-    start_point = np.array([0,0,6.5])
-    desire_goal = np.array([0,5,0])
+    # on_global_std.data = self.calcu_fk_end_pos(joint1.data, joint2.data, joint3.data, joint4.data)
+    on_global_std.data = self.calcu_fk_end_pos(0, 1, 0, 0)
+    start_point = np.array([on_global_std.data[0],on_global_std.data[1], on_global_std.data[2]])
+    desire_goal = np.array([0.,5.,2.])
     dt = 5.
     v_point = (desire_goal-start_point)/dt
-    J, Jp, Jo = self.calcu_jocabian(0,0,0,0)
+    J, Jp, Jo = self.calcu_jocabian(0,1,0,0)
     J = Jp
     assert J.shape == (3,4)
     J_inv= np.linalg.pinv(J)
@@ -82,7 +83,7 @@ class image_converter:
     q_speed = J_inv.dot(v_point.T)
     delt_q = q_speed*dt
     joint1.data = delt_q[0] + 0
-    joint2.data = delt_q[1] + 0
+    joint2.data = delt_q[1] + 1
     joint3.data = delt_q[2] + 0
     joint4.data = delt_q[3] + 0
     print(delt_q)
