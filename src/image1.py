@@ -70,25 +70,6 @@ class image_converter:
     # on_global_std.data = self.calcu_fk_end_pos(joint1.data, joint2.data, joint3.data, joint4.data)
     on_global_std.data = self.calcu_fk_end_pos(0, 1, 0, 0)
 
-    start_point = np.array([on_global_std.data[0],on_global_std.data[1], on_global_std.data[2]-2.5])
-    print("start point {}".format(start_point))
-    desire_goal = np.array([5.46, -2.9, 1])
-    print(desire_goal)
-    dt = 10
-    v_point = (desire_goal-start_point)/dt
-    J, Jp, Jo = self.calcu_jocabian(0,1,0,0)
-    J = Jp
-    assert J.shape == (3,4)
-    J_inv= np.linalg.pinv(J)
-    assert J_inv.shape ==(4,3)
-    q_speed = J_inv.dot(v_point.T)
-    delt_q = q_speed * dt
-    joint1.data = delt_q[0] + 0
-    joint2.data = delt_q[1] + 1
-    joint3.data = delt_q[2] + 0
-    joint4.data = delt_q[3] + 0
-    print(delt_q)
-
     # =========find circles========
     x_cam_pos = self.get_cirlces()
 
@@ -98,16 +79,28 @@ class image_converter:
     # Publish the results
     try:
       self.image_pub1.publish(self.bridge.cv2_to_imgmsg(self.cv_image1, "bgr8"))
-      self.robot_joint1_pub.publish(joint1)
-      self.robot_joint2_pub.publish(joint2)
-      self.robot_joint3_pub.publish(joint3)
-      self.robot_joint4_pub.publish(joint4)
+      # self.robot_joint1_pub.publish(joint1)
+      # self.robot_joint2_pub.publish(joint2)
+      # self.robot_joint3_pub.publish(joint3)
+      # self.robot_joint4_pub.publish(joint4)
       self.x_came_pos_pub.publish(x_cam_pos)
       self.fk_end_pos.publish(on_global_std)
       exit(0)
     except CvBridgeError as e:
       print(e)
 
+  def move_from(self, ja, start_pos, end_pos):
+    dt = 10
+    v_point = (start_pos - end_pos) / dt
+    J, Jp, Jo = self.calcu_jocabian(0, 1, 0, 0)
+    J = Jp
+    assert J.shape == (3, 4)
+    J_inv = np.linalg.pinv(J)
+    assert J_inv.shape == (4, 3)
+    q_speed = J_inv.dot(v_point.T)
+    delt_q = q_speed * dt
+    ja = ja+delt_q
+    return ja
 
   def get_T_std(self, alpha, theta, d, a):
     """
