@@ -46,7 +46,7 @@ class image_converter:
     time = rospy.get_time() - self.first_time
     joint1 = Float64()
     joint1.data = np.pi * np.sin(np.pi / 15. * time)
-    joint1.data = 0.
+    # joint1.data = -math.pi/2
     joint2 = Float64()
     joint2.data = np.pi / 2 * np.sin(np.pi / 15. * time)
     # joint2.data = 0
@@ -55,10 +55,10 @@ class image_converter:
     # joint3.data = 1
     joint4 = Float64()
     joint4.data = np.pi / 2 * np.sin(np.pi / 20. * time)  # without direction
-    # joint4.data = 1
+    # joint4.data = 0
 
     # ==========test==============
-    theta0 = math.pi / 2  # ja1
+    theta0 = joint1.data+math.pi / 2  # ja1
     T_0_g = self.get_T(alpha_pre=0, a_pre=0, d_i=0, theta_i=theta0)
     theta1 = joint2.data + math.pi / 2
     T_1_0 = self.get_T(alpha_pre=math.pi / 2, a_pre=0, theta_i=theta1, d_i=0)
@@ -93,7 +93,6 @@ class image_converter:
     a2 = 0
     T_2_1 = self.get_T_std(alpha=math.pi / 2, a=a2, d=0, theta=theta2)
     a = T_2_1.dot(a)
-    print(a)
     # a = np.array([1, 0, 0, 1])
     theta1 = joint1.data + math.pi / 2
     a1 = 2.5
@@ -101,8 +100,8 @@ class image_converter:
     a = T_1_0.dot(a)
     a = a + np.array([0, 0, a1, 0])
     on_global_std = a
-    print("----")
-    print(on_global)
+    # print("----")
+    # print(on_global)
     print(on_global_std)
     im1=cv2.imshow('window1', self.cv_image1)
     cv2.waitKey(1)
