@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import math
+import os
 
 import roslib
 import sys
@@ -10,7 +11,7 @@ from std_msgs.msg import String
 from sensor_msgs.msg import Image
 from std_msgs.msg import Float64MultiArray, Float64
 from cv_bridge import CvBridge, CvBridgeError
-
+import cv_utils
 
 class image_converter:
 
@@ -31,6 +32,13 @@ class image_converter:
     self.robot_joint4_pub = rospy.Publisher("/robot/joint4_position_controller/command", Float64, queue_size=10)
     # initialize the start time
     self.first_time = rospy.get_time()
+    # the message from x camera
+    self.x_came_pos_pub = rospy.Publisher("x_cam_pos", Float64MultiArray, queue_size=10)
+    self.fk_end_pos = rospy.Publisher("fk_end_pos", Float64MultiArray, queue_size=10)
+    self.template = cv2.imread("image_crop.png", 0)
+    if self.template is None:
+      print("load the templete Failde, \n Please check the image_crop.png is in"+os.getcwd())
+      exit(1)
   # Recieve data from camera 1, process it, and publish
   def callback1(self,data):
     # Recieve the image
@@ -57,54 +65,14 @@ class image_converter:
     joint4.data = np.pi / 2 * np.sin(np.pi / 20. * time)  # without direction
     # joint4.data = 0
 
-    # ==========test==============
-    theta0 = joint1.data+math.pi / 2  # ja1
-    T_0_g = self.get_T(alpha_pre=0, a_pre=0, d_i=0, theta_i=theta0)
-    theta1 = joint2.data + math.pi / 2
-    T_1_0 = self.get_T(alpha_pre=math.pi / 2, a_pre=0, theta_i=theta1, d_i=0)
-    theta2 = joint3.data
-    T_2_1 = self.get_T(alpha_pre=math.pi / 2, a_pre=0, d_i=0, theta_i=theta2)
-    link3 = 3.5
-    theta3 = joint4.data
-    T_3_2 = self.get_T(alpha_pre=-math.pi / 2, a_pre=link3, d_i=0, theta_i=theta3)
-    link1 = 2.5
-    link3 = 3
-    a = np.array([link3, 0, 0, 1])  # slide on z axis //zhongduan
-    a = T_3_2.dot(a)
-    a = T_2_1.dot(a)
-    # on axis 0
-    a = T_1_0.dot(a) + np.array([0, 0, link1, 0])
-    # print(a)
-    # on axis global
-    on_global = (T_0_g.dot(a))
+    on_global_std = Float64MultiArray()
+    on_global_std.data = self.calcu_fk_end_pos(joint1.data, joint2.data, joint3.data, joint4.data)
+    # =========find circles========
+    x_cam_pos = self.get_cirlces()
 
-    # =================std test
-    a = np.array([0, 0, 0, 1])
-    theta4 = joint4.data
-    a4 = 3
-    T_4_3 = self.get_T_std(alpha=0, a=a4, d=0, theta=theta4)
-    a = T_4_3.dot(a)
-    theta3 = joint3.data
-    a3 = 3.5
-    T_3_2 = self.get_T_std(alpha=-math.pi / 2, a=a3, d=0, theta=theta3)
-    a = T_3_2.dot(a)
-
-    theta2 = joint2.data + math.pi / 2
-    a2 = 0
-    T_2_1 = self.get_T_std(alpha=math.pi / 2, a=a2, d=0, theta=theta2)
-    a = T_2_1.dot(a)
-    # a = np.array([1, 0, 0, 1])
-    theta1 = joint1.data + math.pi / 2
-    a1 = 2.5
-    T_1_0 = self.get_T_std(alpha=math.pi / 2, a=0, d=0, theta=theta1)
-    a = T_1_0.dot(a)
-    a = a + np.array([0, 0, a1, 0])
-    on_global_std = a
-    # print("----")
-    # print(on_global)
-    print(on_global_std)
     im1=cv2.imshow('window1', self.cv_image1)
     cv2.waitKey(1)
+
     # Publish the results
     try: 
       self.image_pub1.publish(self.bridge.cv2_to_imgmsg(self.cv_image1, "bgr8"))
@@ -112,25 +80,63 @@ class image_converter:
       self.robot_joint2_pub.publish(joint2)
       self.robot_joint3_pub.publish(joint3)
       self.robot_joint4_pub.publish(joint4)
+      self.x_came_pos_pub.publish(x_cam_pos)
+      self.fk_end_pos.publish(on_global_std)
     except CvBridgeError as e:
       print(e)
 
-  def get_T (self, alpha_pre, theta_i, d_i, a_pre):
-    return np.array([
-      [math.cos(theta_i), -math.sin(theta_i), 0, a_pre],
-      [math.sin(theta_i) * math.cos(alpha_pre), math.cos(theta_i) * math.cos(alpha_pre), -math.sin(alpha_pre),
-       -math.sin(alpha_pre) * d_i],
-      [math.sin(theta_i) * math.sin(alpha_pre), math.cos(theta_i) * math.sin(alpha_pre), math.cos(alpha_pre),
-       math.cos(alpha_pre) * d_i],
-      [0., 0., 0, 1.]
-    ])
+
   def get_T_std(self, alpha, theta, d, a):
+    """
+    get the FK matrix
+    :param alpha:
+    :param theta:
+    :param d:
+    :param a:
+    :return:
+    """
     return np.array([
       [math.cos(theta), -math.sin(theta) * math.cos(alpha), math.sin(theta) * math.sin(alpha), a * math.cos(theta)],
       [math.sin(theta), math.cos(theta) * math.cos(alpha), -math.cos(theta) * math.sin(alpha), a * math.sin(theta)],
       [0., math.sin(alpha), math.cos(alpha), d],
       [0, 0, 0, 1]
     ])
+  def get_cirlces(self):
+    # x cam position
+    x_cam_pos = Float64MultiArray()
+    yellow_pos = cv_utils.detect_yellow(self.cv_image1)
+    blue_pos = cv_utils.detect_blue(self.cv_image1)
+    green_pos = cv_utils.detect_green(self.cv_image1)
+    red_pos = cv_utils.detect_red(self.cv_image1)
+    mask = cv_utils.detect_orange(self.cv_image1)
+    orange_pos = cv_utils.find_target(mask, self.template)
+    x_cam_pos.data = np.array(
+      [yellow_pos[0], yellow_pos[1], blue_pos[0], blue_pos[1], green_pos[0], green_pos[1], red_pos[0], red_pos[1],
+       orange_pos[0], orange_pos[1]])
+    return x_cam_pos
+
+  def calcu_fk_end_pos(self,ja1,ja2,ja3,ja4):
+    a = np.array([0, 0, 0, 1])
+    theta4 = ja4
+    a4 = 3
+    T_4_3 = self.get_T_std(alpha=0, a=a4, d=0, theta=theta4)
+    a = T_4_3.dot(a)
+    theta3 = ja3
+    a3 = 3.5
+    T_3_2 = self.get_T_std(alpha=-math.pi / 2, a=a3, d=0, theta=theta3)
+    a = T_3_2.dot(a)
+
+    theta2 = ja2 + math.pi / 2
+    a2 = 0
+    T_2_1 = self.get_T_std(alpha=math.pi / 2, a=a2, d=0, theta=theta2)
+    a = T_2_1.dot(a)
+    # a = np.array([1, 0, 0, 1])
+    theta1 = ja1 + math.pi / 2
+    a1 = 2.5
+    T_1_0 = self.get_T_std(alpha=math.pi / 2, a=0, d=0, theta=theta1)
+    a = T_1_0.dot(a)
+    return a + np.array([0, 0, a1, 0])
+
 # call the class
 def main(args):
   ic = image_converter()
