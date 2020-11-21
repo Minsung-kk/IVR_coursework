@@ -40,6 +40,7 @@ class image_converter:
       print("load the templete Failde, \n Please check the image_crop.png is in"+os.getcwd())
       exit(1)
   # Recieve data from camera 1, process it, and publish
+
   def callback1(self,data):
     # Recieve the image
     try:
@@ -67,6 +68,7 @@ class image_converter:
 
     on_global_std = Float64MultiArray()
     on_global_std.data = self.calcu_fk_end_pos(joint1.data, joint2.data, joint3.data, joint4.data)
+
     # =========find circles========
     x_cam_pos = self.get_cirlces()
 
