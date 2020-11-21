@@ -66,14 +66,15 @@ class image_converter:
     # joint4.data = np.pi / 2 * np.sin(np.pi / 20. * time)  # without direction
     # joint4.data = 0
 
-
-
     on_global_std = Float64MultiArray()
     # on_global_std.data = self.calcu_fk_end_pos(joint1.data, joint2.data, joint3.data, joint4.data)
     on_global_std.data = self.calcu_fk_end_pos(0, 1, 0, 0)
-    start_point = np.array([on_global_std.data[0],on_global_std.data[1], on_global_std.data[2]])
-    desire_goal = np.array([0.,5.,2.])
-    dt = 5.
+
+    start_point = np.array([on_global_std.data[0],on_global_std.data[1], on_global_std.data[2]-2.5])
+    print("start point {}".format(start_point))
+    desire_goal = np.array([5.46, -2.9, 1])
+    print(desire_goal)
+    dt = 10
     v_point = (desire_goal-start_point)/dt
     J, Jp, Jo = self.calcu_jocabian(0,1,0,0)
     J = Jp
@@ -81,7 +82,7 @@ class image_converter:
     J_inv= np.linalg.pinv(J)
     assert J_inv.shape ==(4,3)
     q_speed = J_inv.dot(v_point.T)
-    delt_q = q_speed*dt
+    delt_q = q_speed * dt
     joint1.data = delt_q[0] + 0
     joint2.data = delt_q[1] + 1
     joint3.data = delt_q[2] + 0
@@ -95,7 +96,7 @@ class image_converter:
     cv2.waitKey(1)
 
     # Publish the results
-    try: 
+    try:
       self.image_pub1.publish(self.bridge.cv2_to_imgmsg(self.cv_image1, "bgr8"))
       self.robot_joint1_pub.publish(joint1)
       self.robot_joint2_pub.publish(joint2)
@@ -141,22 +142,21 @@ class image_converter:
     a = np.array([0, 0, 0, 1])
     theta4 = ja4
     a4 = 3
-    T_4_3 = self.get_T_std(alpha=0, a=a4, d=0, theta=theta4)
-    a = T_4_3.dot(a)
     theta3 = ja3
     a3 = 3.5
-    T_3_2 = self.get_T_std(alpha=-math.pi / 2, a=a3, d=0, theta=theta3)
-    a = T_3_2.dot(a)
-
     theta2 = ja2 + math.pi / 2
     a2 = 0
-    T_2_1 = self.get_T_std(alpha=math.pi / 2, a=a2, d=0, theta=theta2)
-    a = T_2_1.dot(a)
-    # a = np.array([1, 0, 0, 1])
     theta1 = ja1 + math.pi / 2
     a1 = 2.5
     T_1_0 = self.get_T_std(alpha=math.pi / 2, a=0, d=0, theta=theta1)
-    a = T_1_0.dot(a)
+    T_2_1 = self.get_T_std(alpha=math.pi / 2, a=a2, d=0, theta=theta2)
+    T_3_2 = self.get_T_std(alpha=-math.pi / 2, a=a3, d=0, theta=theta3)
+    T_4_3 = self.get_T_std(alpha=0, a=a4, d=0, theta=theta4)
+
+    T_2_0 = T_1_0.dot(T_2_1)
+    T_3_0 = T_2_0.dot(T_3_2)
+    T_4_0 = T_3_0.dot(T_4_3)
+    a = T_4_0.dot(a)
     return a + np.array([0, 0, a1, 0])
 
   def calcu_jocabian(self,ja1, ja2, ja3, ja4):
@@ -181,7 +181,6 @@ class image_converter:
     z_1 = T_1_0[0:3, 0:3].dot(z_0)
     z_2 = T_2_0[0:3, 0:3].dot(z_0)
     z_3 = T_3_0[0:3, 0:3].dot(z_0)
-    z_4 = T_4_0[0:3, 0:3].dot(z_0)
 
     p_0 = np.array([0, 0, 0, 1]).T
     p_1_0 = T_1_0.dot(p_0)
@@ -191,7 +190,8 @@ class image_converter:
     p_3_0 = T_3_0.dot(p_0)[0:3]
     p_4_0 = T_4_0.dot(p_0)[0:3]
 
-    J_11 = np.cross(z_0, (p_4_0 - p_0[0:3]))  # the first col
+    p_0 = np.array([0,0,0])
+    J_11 = np.cross(z_0, (p_4_0 - p_0))  # the first col
     J_12 = np.cross(z_1, (p_4_0 - p_1_0))
     J_13 = np.cross(z_2, (p_4_0 - p_2_0))
     J_14 = np.cross(z_3, (p_4_0 - p_3_0))
