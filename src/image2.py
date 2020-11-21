@@ -57,7 +57,7 @@ class image_converter:
     global_pos = self.estimate_global_pos(self.cv_image2)
     cv_end_pos = Float64MultiArray()
     cv_end_pos.data = global_pos["red"]
-    # print(cv_end_pos)
+    print(cv_end_pos.data)
     #cv2.imwrite('image_copy.png', cv_image)
     im2=cv2.imshow('window2', self.cv_image2)
     cv2.waitKey(1)

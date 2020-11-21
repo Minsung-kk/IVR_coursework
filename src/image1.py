@@ -36,6 +36,7 @@ class image_converter:
     self.x_came_pos_pub = rospy.Publisher("x_cam_pos", Float64MultiArray, queue_size=10)
     self.fk_end_pos = rospy.Publisher("fk_end_pos", Float64MultiArray, queue_size=10)
     self.template = cv2.imread("image_crop.png", 0)
+    self.time = 1
     if self.template is None:
       print("load the templete Failde, \n Please check the image_crop.png is in"+os.getcwd())
       exit(1)
@@ -47,27 +48,44 @@ class image_converter:
       self.cv_image1 = self.bridge.imgmsg_to_cv2(data, "bgr8")
     except CvBridgeError as e:
       print(e)
-    
     # Uncomment if you want to save the image
     #cv2.imwrite('image_copy.png', cv_image)
-
     # make the joint move
-    time = rospy.get_time() - self.first_time
     joint1 = Float64()
-    joint1.data = np.pi * np.sin(np.pi / 15. * time)
-    # joint1.data = -math.pi/2
     joint2 = Float64()
-    joint2.data = np.pi / 2 * np.sin(np.pi / 15. * time)
-    # joint2.data = 0
     joint3 = Float64()
-    joint3.data = np.pi / 2 * np.sin(np.pi / 18. * time)
-    # joint3.data = 1
     joint4 = Float64()
-    joint4.data = np.pi / 2 * np.sin(np.pi / 20. * time)  # without direction
+
+    time = rospy.get_time() - self.first_time
+    # joint1.data = np.pi * np.sin(np.pi / 15. * time)
+    # joint1.data = 0
+    # joint2.data = np.pi / 2 * np.sin(np.pi / 15. * time)
+    # joint2.data = 0
+    # joint3.data = np.pi / 2 * np.sin(np.pi / 18. * time)
+    # joint3.data = 0
+    # joint4.data = np.pi / 2 * np.sin(np.pi / 20. * time)  # without direction
     # joint4.data = 0
+
+
 
     on_global_std = Float64MultiArray()
     on_global_std.data = self.calcu_fk_end_pos(joint1.data, joint2.data, joint3.data, joint4.data)
+    start_point = np.array([0,0,6.5])
+    desire_goal = np.array([0,5,0])
+    dt = 5.
+    v_point = (desire_goal-start_point)/dt
+    J, Jp, Jo = self.calcu_jocabian(0,0,0,0)
+    J = Jp
+    assert J.shape == (3,4)
+    J_inv= np.linalg.pinv(J)
+    assert J_inv.shape ==(4,3)
+    q_speed = J_inv.dot(v_point.T)
+    delt_q = q_speed*dt
+    joint1.data = delt_q[0] + 0
+    joint2.data = delt_q[1] + 0
+    joint3.data = delt_q[2] + 0
+    joint4.data = delt_q[3] + 0
+    print(delt_q)
 
     # =========find circles========
     x_cam_pos = self.get_cirlces()
@@ -84,6 +102,7 @@ class image_converter:
       self.robot_joint4_pub.publish(joint4)
       self.x_came_pos_pub.publish(x_cam_pos)
       self.fk_end_pos.publish(on_global_std)
+      exit(0)
     except CvBridgeError as e:
       print(e)
 
@@ -179,7 +198,7 @@ class image_converter:
     Jp = np.array([J_11, J_12, J_13, J_14])
     Jo = np.array([z_0, z_1, z_2, z_3])
     J = np.concatenate([Jp, Jo], axis=-1).T
-    return J
+    return J,Jp.T,Jo.T
 
 
 def get_T_std(alpha, theta, d, a):
