@@ -139,6 +139,107 @@ class image_converter:
     a = T_1_0.dot(a)
     return a + np.array([0, 0, a1, 0])
 
+  def calcu_jocabian(self,ja1, ja2, ja3, ja4):
+    theta1 = ja1 + math.pi / 2
+    theta2 = ja2 + math.pi / 2
+    theta3 = ja3
+    theta4 = ja4
+    a1 = 2.5
+    a2 = 0
+    a3 = 3.5
+    a4 = 3
+    T_1_0 = self.get_T_std(alpha=math.pi / 2, a=0, d=0, theta=theta1)
+    T_2_1 = self.get_T_std(alpha=math.pi / 2, a=a2, d=0, theta=theta2)
+    T_3_2 = self.get_T_std(alpha=-math.pi / 2, a=a3, d=0, theta=theta3)
+    T_4_3 = self.get_T_std(alpha=0, a=a4, d=0, theta=theta4)
+
+    T_2_0 = T_1_0.dot(T_2_1)
+    T_3_0 = T_2_0.dot(T_3_2)
+    T_4_0 = T_3_0.dot(T_4_3)
+
+    z_0 = np.array([0, 0, 1]).T
+    z_1 = T_1_0[0:3, 0:3].dot(z_0)
+    z_2 = T_2_0[0:3, 0:3].dot(z_0)
+    z_3 = T_3_0[0:3, 0:3].dot(z_0)
+    z_4 = T_4_0[0:3, 0:3].dot(z_0)
+
+    p_0 = np.array([0, 0, 0, 1]).T
+    p_1_0 = T_1_0.dot(p_0)
+    assert p_1_0.shape == (4,)
+    p_1_0 = p_1_0[0:3]
+    p_2_0 = T_2_0.dot(p_0)[0:3]
+    p_3_0 = T_3_0.dot(p_0)[0:3]
+    p_4_0 = T_4_0.dot(p_0)[0:3]
+
+    J_11 = np.cross(z_0, (p_4_0 - p_0[0:3]))  # the first col
+    J_12 = np.cross(z_1, (p_4_0 - p_1_0))
+    J_13 = np.cross(z_2, (p_4_0 - p_2_0))
+    J_14 = np.cross(z_3, (p_4_0 - p_3_0))
+
+    Jp = np.array([J_11, J_12, J_13, J_14])
+    Jo = np.array([z_0, z_1, z_2, z_3])
+    J = np.concatenate([Jp, Jo], axis=-1).T
+    return J
+
+
+def get_T_std(alpha, theta, d, a):
+  """
+  get the FK matrix
+  :param alpha:
+  :param theta:
+  :param d:
+  :param a:
+  :return:
+  """
+  return np.array([
+    [math.cos(theta), -math.sin(theta) * math.cos(alpha), math.sin(theta) * math.sin(alpha), a * math.cos(theta)],
+    [math.sin(theta), math.cos(theta) * math.cos(alpha), -math.cos(theta) * math.sin(alpha), a * math.sin(theta)],
+    [0., math.sin(alpha), math.cos(alpha), d],
+    [0, 0, 0, 1]
+  ])
+def calcu_jocabian(ja1, ja2, ja3, ja4):
+  theta1 = ja1+math.pi/2
+  theta2 = ja2+math.pi/2
+  theta3 = ja3
+  theta4 = ja4
+  a1 = 2.5
+  a2 = 0
+  a3 = 3.5
+  a4 = 3
+  T_1_0 = get_T_std(alpha=math.pi / 2, a=0, d=0, theta=theta1)
+  T_2_1 = get_T_std(alpha=math.pi / 2, a=a2, d=0, theta=theta2)
+  T_3_2 = get_T_std(alpha=-math.pi / 2, a=a3, d=0, theta=theta3)
+  T_4_3 = get_T_std(alpha=0, a=a4, d=0, theta=theta4)
+
+  T_2_0 = T_1_0.dot(T_2_1)
+  T_3_0 = T_2_0.dot(T_3_2)
+  T_4_0 = T_3_0.dot(T_4_3)
+
+  z_0 = np.array([0,0,1]).T
+  z_1 = T_1_0[0:3, 0:3].dot(z_0)
+  z_2 = T_2_0[0:3, 0:3].dot(z_0)
+  z_3 = T_3_0[0:3, 0:3].dot(z_0)
+  z_4 = T_4_0[0:3, 0:3].dot(z_0)
+
+  p_0 = np.array([0,0,0,1]).T
+  p_1_0 = T_1_0.dot(p_0)
+  assert  p_1_0.shape == (4,)
+  p_1_0 = p_1_0[0:3]
+  p_2_0 = T_2_0.dot(p_0)[0:3]
+  p_3_0 = T_3_0.dot(p_0)[0:3]
+  p_4_0 = T_4_0.dot(p_0)[0:3]
+
+  J_11 = np.cross(z_0, (p_4_0-p_0[0:3])) # the first col
+  J_12 = np.cross(z_1, (p_4_0-p_1_0))
+  J_13 = np.cross(z_2, (p_4_0-p_2_0))
+  J_14 = np.cross(z_3, (p_4_0-p_3_0))
+
+  Jp = np.array([J_11, J_12, J_13, J_14])
+  Jo = np.array([z_0, z_1, z_2, z_3])
+  J = np.concatenate([Jp,Jo], axis=-1).T
+  return J
+
+
 # call the class
 def main(args):
   ic = image_converter()
@@ -150,6 +251,5 @@ def main(args):
 
 # run the code if the node is called
 if __name__ == '__main__':
-    main(sys.argv)
-
+  main(sys.argv)
 
