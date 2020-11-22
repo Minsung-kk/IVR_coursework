@@ -4,7 +4,7 @@ import numpy as np
 def DtoR(x):
     return (x/180.0)*np.pi
 
-time = [x for x in range(1,11)
+time = [x for x in range(1,11)]
 # print the end-effector position for t where t = 1 to 10       
 for t in time:
     # sinusoidal signals in radians. t is time
@@ -37,7 +37,6 @@ for t in time:
     Rs = [] 
 
     # Form the homogeneous transformation matrices for each t
-    for t in 
     for i in Ls:
         Rs.append(np.dot(
             [
@@ -62,7 +61,7 @@ for t in time:
     # print(np.dot(np.dot( np.dot(Rs[0], Rs[1]), Rs[2]) ,Rs[3]))
 
     # print x, y, z positions of the end-effector at t
-    print("end-effector position")
-    print("x: " + str(temp[0][3])
-    print("y: " + str(temp[1][3])
-    print("z: " + str(temp[2][3])
+    print("end-effector position for t = " + str(t))
+    print("x: " + str(temp[0][3]))
+    print("y: " + str(temp[1][3]))
+    print("z: " + str(temp[2][3]))
