@@ -63,8 +63,10 @@ class image_converter:
     cv_end_pos.data = global_circle_pos["red"]
     start_pos = np.array([0.,0.,9])
     print("target:{}".format(global_target_pos))
-    global_target_pos = np.array([-1,0.5, 7.5])
-    ja = self.move_from(np.array([0.,0.,0.,0.]),start_pos, global_target_pos)
+    fk_pos = self.calcu_fk_end_pos(0,1,1,1)
+    print(fk_pos)
+    global_target_pos = np.array([4.3,-3.69, 1.87])
+    ja = self.move_from(np.array([0.,0.,0.,0.]), start_pos, global_target_pos)
     print(ja)
     # create publish var
     ja1 = Float64()
@@ -78,9 +80,9 @@ class image_converter:
 
     # ja1.data=0
     # ja2.data=1
-    # ja3.data=0
-    # ja4.data = 0
-
+    # ja3.data=1
+    # ja4.data = 1
+    #
     #cv2.imwrite('image_copy.png', cv_image)
     im2=cv2.imshow('window2', self.cv_image2)
     cv2.waitKey(1)
@@ -140,7 +142,7 @@ class image_converter:
     start_pos = start_pos-offset_z
     end_pos = end_pos - offset_z
     v_point = (start_pos - end_pos) / dt
-    J, Jp, Jo = self.calcu_jocabian(0, 1, 0, 0)
+    J, Jp, Jo = self.calcu_jocabian(ja[0], ja[1], ja[2], ja[3])
     J = Jp
     assert J.shape == (3, 4)
     J_inv = np.linalg.pinv(J)
@@ -184,15 +186,16 @@ class image_converter:
     T_3_0 = T_2_0.dot(T_3_2)
     T_4_0 = T_3_0.dot(T_4_3)
 
-    z_0 = np.array([0, 0, 1]).T
-    z_1 = T_1_0[0:3, 0:3].dot(z_0)
-    z_2 = T_2_0[0:3, 0:3].dot(z_0)
-    z_3 = T_3_0[0:3, 0:3].dot(z_0)
+    z_0 = np.array([0, 0, 1])
+    # z_1 = T_1_0[0:3, 0:3].dot(z_0.T).T
+    # z_2 = T_2_0[0:3, 0:3].dot(z_0.T).T
+    # z_3 = T_3_0[0:3, 0:3].dot(z_0.transpose()).T
+    z_1 = T_1_0[0:3,2]
+    z_2 = T_2_0[0:3,2]
+    z_3 = T_3_0[0:3,2]
 
     p_0 = np.array([0, 0, 0, 1]).T
-    p_1_0 = T_1_0.dot(p_0)
-    assert p_1_0.shape == (4,)
-    p_1_0 = p_1_0[0:3]
+    p_1_0 = T_1_0.dot(p_0)[0:3]
     p_2_0 = T_2_0.dot(p_0)[0:3]
     p_3_0 = T_3_0.dot(p_0)[0:3]
     p_4_0 = T_4_0.dot(p_0)[0:3]
@@ -219,6 +222,43 @@ class image_converter:
     target_y = (self.x_cam_pos_tar[0] - self.x_cam_pos_yellow[0]) *a
     target_z = (self.x_cam_pos_yellow[1] - self.x_cam_pos_tar[1]) * a
     return np.array([target_x, target_y, target_z])
+  def calcu_fk_end_pos(self,ja1,ja2,ja3,ja4):
+    a = np.array([0, 0, 0, 1])
+    theta4 = ja4
+    a4 = 3
+    theta3 = ja3
+    a3 = 3.5
+    theta2 = ja2 + math.pi / 2
+    a2 = 0
+    theta1 = ja1 + math.pi / 2
+    a1 = 2.5
+    T_1_0 = self.get_T_std(alpha=math.pi / 2, a=0, d=0, theta=theta1)
+    T_2_1 = self.get_T_std(alpha=math.pi / 2, a=a2, d=0, theta=theta2)
+    T_3_2 = self.get_T_std(alpha=-math.pi / 2, a=a3, d=0, theta=theta3)
+    T_4_3 = self.get_T_std(alpha=0, a=a4, d=0, theta=theta4)
+
+    T_2_0 = T_1_0.dot(T_2_1)
+    T_3_0 = T_2_0.dot(T_3_2)
+    T_4_0 = T_3_0.dot(T_4_3)
+    a = T_4_0.dot(a)
+    return a + np.array([0, 0, a1, 0])
+
+  def calcu_jas_from_vision(self, global_pos):
+    ja2 = -np.arctan2(global_pos["green"][1] - global_pos["blue"][1], global_pos["green"][2] - global_pos["blue"][2])
+    ja2 = np.clip(ja2.data, -np.pi / 2, np.pi / 2)
+    ja3 = np.arctan2(global_pos["green"][0] - global_pos["blue"][0], global_pos["green"][2] - global_pos["blue"][2])
+    ja3 = np.clip(ja3.data, -np.pi / 2, np.pi / 2)
+    # calculate 3D vector of link3 and link4
+    v3 = global_pos["green"] - global_pos["blue"]
+    v4 = global_pos["red"] - global_pos["green"]
+    v_c = np.cross(v3, v4)
+    sin_theta = np.linalg.norm(v_c) / (np.linalg.norm(v3) * np.linalg.norm(v4))
+    cos_theta = v3.dot(v4) / (np.linalg.norm(v3) * np.linalg.norm(v4))
+    # ja4.data = np.arccos(v3.dot(v4)/(np.sqrt(np.sum(v3**2)) * np.sqrt(np.sum(v4**2))))
+    ja4 = np.arctan2(sin_theta, cos_theta)
+    if v_c[0] > 0:
+      ja4.data = -ja4.data
+
 
 def main(args):
   ic = image_converter()
