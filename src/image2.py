@@ -36,8 +36,10 @@ class image_converter:
     self.robot_joint2_pub = rospy.Publisher("/robot/joint2_position_controller/command", Float64, queue_size=10)
     self.robot_joint3_pub = rospy.Publisher("/robot/joint3_position_controller/command", Float64, queue_size=10)
     self.robot_joint4_pub = rospy.Publisher("/robot/joint4_position_controller/command", Float64, queue_size=10)
-
-
+    self.robot_joint_angle_pub = rospy.Publisher("joint_angle_cv", Float64MultiArray, queue_size=10)
+    self.robot_joint_angle4 = rospy.Publisher("joint_angle4_cv", Float64, queue_size=10)
+    self.start_time = rospy.get_time()
+    self.last_ja4 = 0
   def x_cam_callback(self, data):
     try:
       x_cam_pos = np.array(data.data)
@@ -61,28 +63,40 @@ class image_converter:
     global_target_pos = self.estimate_target_3Dposition()
     cv_end_pos = Float64MultiArray()
     cv_end_pos.data = global_circle_pos["red"]
-    start_pos = np.array([0.,0.,9])
-    print("target:{}".format(global_target_pos))
-    fk_pos = self.calcu_fk_end_pos(0,1,1,1)
-    print(fk_pos)
-    global_target_pos = np.array([4.3,-3.69, 1.87])
-    ja = self.move_from(np.array([0.,0.,0.,0.]), start_pos, global_target_pos)
-    print(ja)
+    # start_pos = np.array([0.,0.,9])
+    # print("target:{}".format(global_target_pos))
+    # fk_pos = self.calcu_fk_end_pos(0,1,1,1)
+    # print(fk_pos)
+    # global_target_pos = np.array([4.3,-3.69, 1.87])
+    # ja = self.move_from(np.array([0.,0.,0.,0.]), start_pos, global_target_pos)
+    # print(ja)
     # create publish var
     ja1 = Float64()
-    ja1.data = ja[0]
     ja2 = Float64()
-    ja2.data = ja[1]
     ja3 = Float64()
-    ja3.data = ja[2]
     ja4 = Float64()
-    ja4.data = ja[3]
+    time = rospy.get_time() - self.start_time
 
+    # ja1.data = np.pi * np.sin(np.pi / 15. * time)
+    ja1.data = 0
+    ja2.data = np.pi / 2 * np.sin(np.pi / 15. * time)
+    # joint2.data = 0
+    ja3.data = np.pi / 2 * np.sin(np.pi / 18. * time)
+    # joint3.data = 0
+    ja4.data = np.pi / 2 * np.sin(np.pi / 20. * time)  # without direction
+    # ja4.data = 0
+
+    jas_cv = self.calcu_jas_from_vision(global_pos=global_circle_pos)
+    ja_pub = Float64MultiArray()
+    ja_pub.data = jas_cv
+    # print(jas_cv)
     # ja1.data=0
     # ja2.data=1
     # ja3.data=1
     # ja4.data = 1
     #
+    ja4_pub = Float64()
+    ja4_pub.data = jas_cv[3]
     #cv2.imwrite('image_copy.png', cv_image)
     im2=cv2.imshow('window2', self.cv_image2)
     cv2.waitKey(1)
@@ -95,7 +109,8 @@ class image_converter:
       self.robot_joint2_pub.publish(ja2)
       self.robot_joint3_pub.publish(ja3)
       self.robot_joint4_pub.publish(ja4)
-
+      self.robot_joint_angle_pub.publish(ja_pub)
+      self.robot_joint_angle4.publish(ja4_pub)
     except CvBridgeError as e:
       print(e)
 
@@ -256,8 +271,15 @@ class image_converter:
     cos_theta = v3.dot(v4) / (np.linalg.norm(v3) * np.linalg.norm(v4))
     # ja4.data = np.arccos(v3.dot(v4)/(np.sqrt(np.sum(v3**2)) * np.sqrt(np.sum(v4**2))))
     ja4 = np.arctan2(sin_theta, cos_theta)
-    if v_c[0] > 0:
-      ja4.data = -ja4.data
+    inv_flag = 0
+    if v_c[0] < 0: # because the direct is about x axis
+      ja4 = -ja4
+      inv_flag = 1
+
+    # if np.abs(v_c[0])<0.5 and np.abs(self.last_ja4-ja4)>0.5 and inv_flag == 1:
+    #   ja4 = -ja4
+    # self.last_ja4 = ja4
+    return np.array([0, ja2, ja3, ja4])
 
 
 def main(args):
