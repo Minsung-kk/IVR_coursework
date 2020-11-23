@@ -6,12 +6,13 @@ import sys
 import rospy
 import cv2
 import numpy as np
+from scipy.optimize import least_squares
 from std_msgs.msg import String
 from sensor_msgs.msg import Image
 from std_msgs.msg import Float64MultiArray, Float64
 from cv_bridge import CvBridge, CvBridgeError
 import cv_utils
-
+from math import *
 class image_converter:
 
   # Defines publisher and subscriber
@@ -63,28 +64,39 @@ class image_converter:
     global_target_pos = self.estimate_target_3Dposition()
     cv_end_pos = Float64MultiArray()
     cv_end_pos.data = global_circle_pos["red"]
-    # start_pos = np.array([0.,0.,9])
-    # print("target:{}".format(global_target_pos))
-    # fk_pos = self.calcu_fk_end_pos(0,1,1,1)
-    # print(fk_pos)
+
+
+    start_angle = np.array([0.,0.,0.2,0.])
+    start_pos = self.calcu_fk_end_pos(start_angle[0], start_angle[1], start_angle[2], start_angle[3])
+    print("target:{}".format(global_target_pos))
+    fk_pos = self.calcu_fk_end_pos(0,0,0.2,0.2)
+    print("fk:pos:{}".format(fk_pos))
+    global_target_pos = fk_pos
+
     # global_target_pos = np.array([4.3,-3.69, 1.87])
-    # ja = self.move_from(np.array([0.,0.,0.,0.]), start_pos, global_target_pos)
-    # print(ja)
+    ja = self.move_from(start_angle, start_pos, global_target_pos)
+    fk_pos = self.calcu_fk_end_pos(ja[0], ja[1], ja[2], ja[3])
+    print("fk2:pos:{}".format(fk_pos))
+    print("ja {}".format(ja))
+
     # create publish var
     ja1 = Float64()
     ja2 = Float64()
     ja3 = Float64()
     ja4 = Float64()
     time = rospy.get_time() - self.start_time
-
-    # ja1.data = np.pi * np.sin(np.pi / 15. * time)
-    ja1.data = 0
-    ja2.data = np.pi / 2 * np.sin(np.pi / 15. * time)
-    # joint2.data = 0
-    ja3.data = np.pi / 2 * np.sin(np.pi / 18. * time)
-    # joint3.data = 0
-    ja4.data = np.pi / 2 * np.sin(np.pi / 20. * time)  # without direction
-    # ja4.data = 0
+    ja1.data = ja[0]
+    ja2.data = ja[1]
+    ja3.data = ja[2]
+    ja4.data = ja[3]
+    # # ja1.data = np.pi * np.sin(np.pi / 15. * time)
+    # ja1.data = 0
+    # ja2.data = np.pi / 2 * np.sin(np.pi / 15. * time)
+    # # joint2.data = 0
+    # ja3.data = np.pi / 2 * np.sin(np.pi / 18. * time)
+    # # joint3.data = 0
+    # ja4.data = np.pi / 2 * np.sin(np.pi / 20. * time)  # without direction
+    # # ja4.data = 0
 
     jas_cv = self.calcu_jas_from_vision(global_pos=global_circle_pos)
     ja_pub = Float64MultiArray()
@@ -113,7 +125,11 @@ class image_converter:
       self.robot_joint_angle4.publish(ja4_pub)
     except CvBridgeError as e:
       print(e)
+  def angle_conv_J2T(self, ja):
+    return ja+np.array([pi/2, pi/2, 0, 0])
 
+  def angle_conv_T2J(self, theta):
+    return theta- np.array([pi/2, pi/2, 0, 0])
   # don't use alone
   def get_global_pos(self, x_cam_pos, y_cam_pos, x_cam_pos_yellow, y_cam_pos_yellow, a):
     if x_cam_pos[0] == -1:
@@ -152,19 +168,20 @@ class image_converter:
 
   def move_from(self, ja, start_pos, end_pos):
     dt = 10
-    a1 = 2.5
-    offset_z = np.array([0,0,a1])
-    start_pos = start_pos-offset_z
-    end_pos = end_pos - offset_z
-    v_point = (start_pos - end_pos) / dt
-    J, Jp, Jo = self.calcu_jocabian(ja[0], ja[1], ja[2], ja[3])
-    J = Jp
+    delt_angle = np.array([math.pi / 2, math.pi / 2, 0, 0])
+    theta = ja + delt_angle
+    v_point = (end_pos-start_pos) / dt
+    # J, Jp, Jo = self.calcu_jocabian(theta[0], theta[1], theta[2], theta[3])
+    # J = Jp
+    J = self.jocabian40(theta)
     assert J.shape == (3, 4)
     J_inv = np.linalg.pinv(J)
     assert J_inv.shape == (4, 3)
     q_speed = J_inv.dot(v_point.T)
     delt_q = q_speed * dt
-    ja = ja+delt_q
+    theta = theta + delt_q
+    # convert to global axis
+    ja = theta - delt_angle
     return ja
 
   def get_T_std(self, alpha, theta, d, a):
@@ -183,16 +200,12 @@ class image_converter:
       [0, 0, 0, 1]
     ])
 
-  def calcu_jocabian(self,ja1, ja2, ja3, ja4):
-    theta1 = ja1 + math.pi / 2
-    theta2 = ja2 + math.pi / 2
-    theta3 = ja3
-    theta4 = ja4
-    a1 = 2.5
+  def calcu_jocabian(self,theta1, theta2, theta3, theta4):
+    d1 = 2.5
     a2 = 0
     a3 = 3.5
     a4 = 3
-    T_1_0 = self.get_T_std(alpha=math.pi / 2, a=0, d=0, theta=theta1)
+    T_1_0 = self.get_T_std(alpha=math.pi / 2, a=0, d=d1, theta=theta1)
     T_2_1 = self.get_T_std(alpha=math.pi / 2, a=a2, d=0, theta=theta2)
     T_3_2 = self.get_T_std(alpha=-math.pi / 2, a=a3, d=0, theta=theta3)
     T_4_3 = self.get_T_std(alpha=0, a=a4, d=0, theta=theta4)
@@ -202,9 +215,6 @@ class image_converter:
     T_4_0 = T_3_0.dot(T_4_3)
 
     z_0 = np.array([0, 0, 1])
-    # z_1 = T_1_0[0:3, 0:3].dot(z_0.T).T
-    # z_2 = T_2_0[0:3, 0:3].dot(z_0.T).T
-    # z_3 = T_3_0[0:3, 0:3].dot(z_0.transpose()).T
     z_1 = T_1_0[0:3,2]
     z_2 = T_2_0[0:3,2]
     z_3 = T_3_0[0:3,2]
@@ -224,7 +234,88 @@ class image_converter:
     Jp = np.array([J_11, J_12, J_13, J_14])
     Jo = np.array([z_0, z_1, z_2, z_3])
     J = np.concatenate([Jp, Jo], axis=-1).T
-    return J,Jp.T,Jo.T
+    Jp = Jp.T
+    Jo = Jo.T
+    return J,Jp, Jo
+
+
+  def jocabian40(self, q):
+    theta1 = q[0]
+    theta2 = q[1]
+    theta3 = q[2]
+    theta4 = q[3]
+    a3 = 3.5
+    a4 = 3
+    # generate from matlab
+    Jocabian = np.array([
+      [a4 * cos(theta4) * (cos(theta1) * sin(theta3) - cos(theta2) * cos(theta3) * sin(theta1)) + a3 * cos(
+        theta1) * sin(theta3) - a3 * cos(theta2) * cos(theta3) * sin(theta1) + a4 * sin(theta1) * sin(theta2) * sin(
+        theta4),
+       - a3 * cos(theta1) * cos(theta3) * sin(theta2) - a4 * cos(theta1) * cos(theta2) * sin(theta4) - a4 * cos(
+         theta1) * cos(theta3) * cos(theta4) * sin(theta2),
+       a4 * cos(theta4) * (cos(theta3) * sin(theta1) - cos(theta1) * cos(theta2) * sin(theta3)) + a3 * cos(
+         theta3) * sin(theta1) - a3 * cos(theta1) * cos(theta2) * sin(theta3),
+       - a4 * sin(theta4) * (sin(theta1) * sin(theta3) + cos(theta1) * cos(theta2) * cos(theta3)) - a4 * cos(
+         theta1) * cos(theta4) * sin(theta2)],
+      [a4 * cos(theta4) * (sin(theta1) * sin(theta3) + cos(theta1) * cos(theta2) * cos(theta3)) + a3 * sin(
+        theta1) * sin(theta3) + a3 * cos(theta1) * cos(theta2) * cos(theta3) - a4 * cos(theta1) * sin(theta2) * sin(
+        theta4),
+       - a3 * cos(theta3) * sin(theta1) * sin(theta2) - a4 * cos(theta2) * sin(theta1) * sin(theta4) - a4 * cos(
+         theta3) * cos(theta4) * sin(theta1) * sin(theta2),
+       - a4 * cos(theta4) * (cos(theta1) * cos(theta3) + cos(theta2) * sin(theta1) * sin(theta3)) - a3 * cos(
+         theta1) * cos(theta3) - a3 * cos(theta2) * sin(theta1) * sin(theta3),
+       a4 * sin(theta4) * (cos(theta1) * sin(theta3) - cos(theta2) * cos(theta3) * sin(theta1)) - a4 * cos(
+         theta4) * sin(theta1) * sin(theta2)],
+      [0,
+       a3 * cos(theta2) * cos(theta3) - a4 * sin(theta2) * sin(theta4) + a4 * cos(theta2) * cos(theta3) * cos(theta4),
+       - a3 * sin(theta2) * sin(theta3) - a4 * cos(theta4) * sin(theta2) * sin(theta3),
+       a4 * cos(theta2) * cos(theta4) - a4 * cos(theta3) * sin(theta2) * sin(theta4)]])
+    return Jocabian
+
+
+  def jocabian30(self, q):
+    theta1 = q[0]
+    theta2 = q[1]
+    theta3 = q[2]
+    a3 = 3.5
+    # generate from matlab
+    return np.array([
+      [a3 * cos(theta1) * sin(theta3) - a3 * cos(theta2) * cos(theta3) * sin(theta1),
+       -a3 * cos(theta1) * cos(theta3) * sin(theta2),
+       a3 * cos(theta3) * sin(theta1) - a3 * cos(theta1) * cos(theta2) * sin(theta3)],
+      [a3 * sin(theta1) * sin(theta3) + a3 * cos(theta1) * cos(theta2) * cos(theta3),
+       -a3 * cos(theta3) * sin(theta1) * sin(theta2),
+       - a3 * cos(theta1) * cos(theta3) - a3 * cos(theta2) * sin(theta1) * sin(theta3)],
+      [0, a3 * cos(theta2) * cos(theta3), -a3 * sin(theta2) * sin(theta3)]])
+
+  def K30(self, q):
+    theta1 = q[0]
+    theta2 = q[1]
+    theta3 = q[2]
+    a3 = 3.5
+    # generate from matlab
+    return np.array([
+      a3 * sin(theta1) * sin(theta3) + a3 * cos(theta1) * cos(theta2) * cos(theta3),
+      a3 * cos(theta2) * cos(theta3) * sin(theta1) - a3 * cos(theta1) * sin(theta3),
+      a3 * cos(theta3) * sin(theta2) + 5 / 2])
+
+  def K40(self, q ):
+    theta1 = q[0]
+    theta2 = q[1]
+    theta3 = q[2]
+    theta4 = q[3]
+    a3 = 3.5
+    a4 = 3
+    return np.array([
+      a4 * cos(theta4) * (sin(theta1) * sin(theta3) + cos(theta1) * cos(theta2) * cos(theta3)) + a3 * sin(theta1) * sin(
+        theta3) + a3 * cos(theta1) * cos(theta2) * cos(theta3) - a4 * cos(theta1) * sin(theta2) * sin(theta4),
+      a3 * cos(theta2) * cos(theta3) * sin(theta1) - a3 * cos(theta1) * sin(theta3) - a4 * cos(theta4) * (
+              cos(theta1) * sin(theta3) - cos(theta2) * cos(theta3) * sin(theta1)) - a4 * sin(theta1) * sin(
+        theta2) * sin(theta4),
+      a3 * cos(theta3) * sin(theta2) + a4 * cos(theta2) * sin(theta4) + a4 * cos(theta3) * cos(theta4) * sin(
+        theta2) + 5 / 2
+    ])
+
   def estimate_target_3Dposition(self):
     a = cv_utils.pixel2meter(self.cv_image2)
     orange_mask = cv_utils.detect_orange(self.cv_image2)
@@ -237,8 +328,10 @@ class image_converter:
     target_y = (self.x_cam_pos_tar[0] - self.x_cam_pos_yellow[0]) *a
     target_z = (self.x_cam_pos_yellow[1] - self.x_cam_pos_tar[1]) * a
     return np.array([target_x, target_y, target_z])
+
   def calcu_fk_end_pos(self,ja1,ja2,ja3,ja4):
     a = np.array([0, 0, 0, 1])
+    d1 = 2.5
     theta4 = ja4
     a4 = 3
     theta3 = ja3
@@ -246,8 +339,7 @@ class image_converter:
     theta2 = ja2 + math.pi / 2
     a2 = 0
     theta1 = ja1 + math.pi / 2
-    a1 = 2.5
-    T_1_0 = self.get_T_std(alpha=math.pi / 2, a=0, d=0, theta=theta1)
+    T_1_0 = self.get_T_std(alpha=math.pi / 2, a=0, d=d1, theta=theta1)
     T_2_1 = self.get_T_std(alpha=math.pi / 2, a=a2, d=0, theta=theta2)
     T_3_2 = self.get_T_std(alpha=-math.pi / 2, a=a3, d=0, theta=theta3)
     T_4_3 = self.get_T_std(alpha=0, a=a4, d=0, theta=theta4)
@@ -256,7 +348,7 @@ class image_converter:
     T_3_0 = T_2_0.dot(T_3_2)
     T_4_0 = T_3_0.dot(T_4_3)
     a = T_4_0.dot(a)
-    return a + np.array([0, 0, a1, 0])
+    return a[0:3]
 
   def calcu_jas_from_vision(self, global_pos):
     ja2 = -np.arctan2(global_pos["green"][1] - global_pos["blue"][1], global_pos["green"][2] - global_pos["blue"][2])
@@ -274,13 +366,16 @@ class image_converter:
     inv_flag = 0
     if v_c[0] < 0: # because the direct is about x axis
       ja4 = -ja4
-      inv_flag = 1
 
-    # if np.abs(v_c[0])<0.5 and np.abs(self.last_ja4-ja4)>0.5 and inv_flag == 1:
-    #   ja4 = -ja4
-    # self.last_ja4 = ja4
     return np.array([0, ja2, ja3, ja4])
-
+  def joint_angles_estimation(self):
+    res1 = least_squares(self.K30,(0,0,0),self.jocabian30,bounds = (-math.pi / 2, math.pi / 2))
+    self.j1 = res1.x[0]
+    self.j2 = res1.x[1]
+    self.j3 = res1.x[2]
+    res2 = least_squares(self.K40,0,bounds = (-math.pi / 2, math.pi / 2))
+    self.j4 = res2.x[0]
+    return np.array([self.j1,self.j2,self.j3,self.j4])
 
 def main(args):
   ic = image_converter()
@@ -293,5 +388,4 @@ def main(args):
 # run the code if the node is called
 if __name__ == '__main__':
     main(sys.argv)
-
 
