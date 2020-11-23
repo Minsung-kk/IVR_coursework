@@ -16,7 +16,6 @@ def joint_angles(time):
   return [a1, a2, a3, a4]
 
 # Transformation matrices
-
 def T_matrices(joint_angles):
   # D-H table
   l1 = [joint_angles[0]+np.pi/2, np.pi/2, 0, 2.5]
@@ -47,15 +46,58 @@ def T_matrices(joint_angles):
       )
   return Ts
 
-# Forward Kinematics
+# Forward Kinematics using transformation matrices
 def forward_kinematics(Ts):
   temp = np.identity(4)
   for i in Ts:
         temp = np.dot(temp, i)
   return temp
 
+# Jacobian using transformation matrices
+def jacobian(Ts):
+  # get tranformation matrices for frame 0 to 1, 0 to 2, 0 to 3, 0 to 4
+  T_0 = []
+  T_0.append(Ts[0])  
+  for i in range(1,len(Ts)):
+    T_0.append(np.dot(T_0[i-1], Ts[i]))
+  
+  # T_2_0 = T_0[1]
+  # T_3_0 = T_0[2]
+  # T_4_0 = T_0[3]
 
-# homogeneous transformation matrix
+  # Rotation matrices
+  R_0 = []
+  for i in T_0:
+    R_0.append(i[:3,:3])
+  # R_1_0 = R_0[0]
+  # R_2_0 = R_0[1]
+  # R_3_0 = R_0[2]
+  # R_4_0 = R_0[3]
+  
+  # Linear matrices
+  D_0 = []
+  for i in T_0:
+    D_0.append(i[:3,3])
+  # D_1_0 = Ts[0][:3,3]
+  # D_2_0 = T_2_0[:3,3]
+  # D_3_0 = T_3_0[:3,3]
+  # D_4_0 = T_4_0[:3,3]
+
+  # Jacobain
+  jacobain = np.zeros((6,4))
+  z = np.array([0, 0, 1])
+  for i in range(len(Ts)):
+    # Linear part
+    D_diff = D_0[len(Ts)-1] - D_0[i]
+    linear = np.cross(np.dot(R_0[i], z), D_diff)
+    for j in range(3):
+      jacobain[j][i] = linear[j] 
+    # Rotation part
+    rotation = np.dot(R_0[i], z)
+    for k in range(3):
+      jacobain[k+3][i] = rotation[k]
+  print(jacobain)
+
 # Publish data
 def move():
   rospy.init_node('target_pos_cmd', anonymous=True)
@@ -99,7 +141,11 @@ def move():
 # run the code if the node is called
 if __name__ == '__main__':
   try:
-    move()
+    ja = joint_angles(0)
+    Ts = T_matrices(ja)
+    # print(Ts)
+    jacobian(Ts)
+    # move()
   except rospy.ROSInterruptException:
     pass
 
