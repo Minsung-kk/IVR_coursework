@@ -1,12 +1,61 @@
 #!/usr/bin/env python3
 
 
-import rospy
+# import rospy
 import numpy as np
-from std_msgs.msg import String
-from std_msgs.msg import Float64
+# from std_msgs.msg import String
+# from std_msgs.msg import Float64
+
+# Joint angles given time
+def joint_angles(time):
+  # a1 = 180*np.sin(np.pi/15*t)
+  a1 = 0
+  a2 = 90*np.sin(np.pi/15*time)
+  a3 = 90*np.sin(np.pi/18*time)
+  a4 = 90*np.sin(np.pi/20*time)
+  return [a1, a2, a3, a4]
+
+# Transformation matrices
+
+def T_matrices(joint_angles):
+  # D-H table
+  l1 = [joint_angles[0]+np.pi/2, np.pi/2, 0, 2.5]
+  l2 = [joint_angles[1]+np.pi/2, np.pi/2, 0, 0]
+  l3 = [joint_angles[2], -np.pi/2, 3.5, 0]
+  l4 = [joint_angles[3], 0, 3, 0]
+
+  Ls = np.array([l1, l2, l3, l4])  
+  n = len(Ls)
+  Ts = []
+
+  for i in range(n):
+    Ts.append(
+      np.dot(
+            [
+             [np.cos(Ls[i][0]), -np.sin(Ls[i][0]),0,0], 
+             [np.sin(Ls[i][0]), np.cos(Ls[i][0]),0,0],
+             [0,0,1,Ls[i][3]],
+             [0,0,0,1],
+            ], 
+            [
+             [1,0,0,Ls[i][2]],
+             [0,np.cos(Ls[i][1]),-np.sin(Ls[i][1]),0],
+             [0,np.sin(Ls[i][1]),np.cos(Ls[i][1]),0],
+             [0,0,0,1]
+            ]
+            )
+      )
+  return Ts
+
+# Forward Kinematics
+def forward_kinematics(Ts):
+  temp = np.identity(4)
+  for i in Ts:
+        temp = np.dot(temp, i)
+  return temp
 
 
+# homogeneous transformation matrix
 # Publish data
 def move():
   rospy.init_node('target_pos_cmd', anonymous=True)
@@ -46,8 +95,6 @@ def move():
     robot_joint5_pub.publish(joint5)
     robot_joint6_pub.publish(joint6)
     rate.sleep()
-
-
 
 # run the code if the node is called
 if __name__ == '__main__':
