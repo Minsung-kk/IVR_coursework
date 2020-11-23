@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 
 
-# import rospy
+import rospy
 import numpy as np
-# from std_msgs.msg import String
-# from std_msgs.msg import Float64
+from std_msgs.msg import String
+from std_msgs.msg import Float64
 
 # Joint angles given time
 def joint_angles(time):
@@ -83,20 +83,24 @@ def jacobian(Ts):
   # D_3_0 = T_3_0[:3,3]
   # D_4_0 = T_4_0[:3,3]
 
-  # Jacobain
-  jacobain = np.zeros((6,4))
+  # Jacobian
+  jacobian = np.zeros((6,4))
   z = np.array([0, 0, 1])
   for i in range(len(Ts)):
     # Linear part
     D_diff = D_0[len(Ts)-1] - D_0[i]
     linear = np.cross(np.dot(R_0[i], z), D_diff)
     for j in range(3):
-      jacobain[j][i] = linear[j] 
+      jacobian[j][i] = linear[j] 
     # Rotation part
     rotation = np.dot(R_0[i], z)
     for k in range(3):
-      jacobain[k+3][i] = rotation[k]
-  print(jacobain)
+      jacobian[k+3][i] = rotation[k]
+
+  return jacobian
+
+  # pseudo inverse
+  # np.linalg.pinv(jacobian)
 
 # Publish data
 def move():
@@ -109,6 +113,13 @@ def move():
   robot_joint4_pub = rospy.Publisher("/target2/x2_position_controller/command", Float64, queue_size=10)
   robot_joint5_pub = rospy.Publisher("/target2/y2_position_controller/command", Float64, queue_size=10)
   robot_joint6_pub = rospy.Publisher("/target2/z2_position_controller/command", Float64, queue_size=10)
+
+  # Initialize a publisher for the robot
+  robot_joint11_pub = rospy.Publisher("/robot/joint1_position_controller/command", Float64, queue_size=10)
+  robot_joint22_pub = rospy.Publisher("/robot/joint2_position_controller/command", Float64, queue_size=10)
+  robot_joint33_pub = rospy.Publisher("/robot/joint3_position_controller/command", Float64, queue_size=10)
+  robot_joint44_pub = rospy.Publisher("/robot/joint4_position_controller/command", Float64, queue_size=10)
+
   t0 = rospy.get_time()
   while not rospy.is_shutdown():
     cur_time = np.array([rospy.get_time()])-t0
@@ -138,14 +149,28 @@ def move():
     robot_joint6_pub.publish(joint6)
     rate.sleep()
 
+    j2 = ((90*np.sin(np.pi/15*cur_time))/180.0)*np.pi
+    j3 = ((90*np.sin(np.pi/18*cur_time))/180.0)*np.pi
+    j4 = ((90*np.sin(np.pi/20*cur_time))/180.0)*np.pi
+    joint22=Float64()
+    joint22.data = j2
+    joint33=Float64()
+    joint33.data = j3
+    joint44=Float64()
+    joint44.data = j4
+    robot_joint22_pub.publish(joint22)
+    robot_joint33_pub.publish(joint33)
+    robot_joint44_pub.publish(joint44)
+    rate.sleep()
+
 # run the code if the node is called
 if __name__ == '__main__':
   try:
-    ja = joint_angles(0)
-    Ts = T_matrices(ja)
-    # print(Ts)
-    jacobian(Ts)
-    # move()
+    # ja = joint_angles(0)
+    # Ts = T_matrices(ja)
+    # # print(Ts)
+    # jacobian(Ts)
+    move()
   except rospy.ROSInterruptException:
     pass
 
