@@ -13,6 +13,8 @@ from std_msgs.msg import Float64MultiArray, Float64
 from cv_bridge import CvBridge, CvBridgeError
 import cv_utils
 from math import *
+import torch
+import torch.nn as nn
 class image_converter:
 
   # Defines publisher and subscriber
@@ -60,10 +62,10 @@ class image_converter:
     except CvBridgeError as e:
       print(e)
     # get all cirlce's 3d position
-    global_circle_pos = self.estimate_global_pos(self.cv_image2)
+    self.global_circle_pos = self.estimate_global_pos(self.cv_image2)
     global_target_pos = self.estimate_target_3Dposition()
     cv_end_pos = Float64MultiArray()
-    cv_end_pos.data = global_circle_pos["red"]
+    cv_end_pos.data = self.global_circle_pos["red"]
 
 
     start_angle = np.array([0.,0.,0.2,0.])
@@ -72,7 +74,8 @@ class image_converter:
     fk_pos = self.calcu_fk_end_pos(0,0,0.2,0.2)
     print("fk:pos:{}".format(fk_pos))
     global_target_pos = fk_pos
-
+    esti_angle = self.joint_angles_estimation()
+    print("esti_angle:{}".format(esti_angle))
     # global_target_pos = np.array([4.3,-3.69, 1.87])
     ja = self.move_from(start_angle, start_pos, global_target_pos)
     fk_pos = self.calcu_fk_end_pos(ja[0], ja[1], ja[2], ja[3])
@@ -98,7 +101,7 @@ class image_converter:
     # ja4.data = np.pi / 2 * np.sin(np.pi / 20. * time)  # without direction
     # # ja4.data = 0
 
-    jas_cv = self.calcu_jas_from_vision(global_pos=global_circle_pos)
+    jas_cv = self.calcu_jas_from_vision(global_pos=self.global_circle_pos)
     ja_pub = Float64MultiArray()
     ja_pub.data = jas_cv
     # print(jas_cv)
@@ -114,7 +117,7 @@ class image_converter:
     cv2.waitKey(1)
 
     # Publish the results
-    try: 
+    try:
       self.image_pub2.publish(self.bridge.cv2_to_imgmsg(self.cv_image2, "bgr8"))
       self.cv_end_pos_pub.publish(cv_end_pos)
       self.robot_joint1_pub.publish(ja1)
@@ -299,7 +302,11 @@ class image_converter:
       a3 * cos(theta2) * cos(theta3) * sin(theta1) - a3 * cos(theta1) * sin(theta3),
       a3 * cos(theta3) * sin(theta2) + 5 / 2])
 
-  def K40(self, q ):
+  def K30_for_esti(self, q):
+    rel_pos = self.K30(q)
+    return rel_pos - self.global_circle_pos["green"]
+
+  def K40(self, q):
     theta1 = q[0]
     theta2 = q[1]
     theta3 = q[2]
@@ -369,14 +376,124 @@ class image_converter:
 
     return np.array([0, ja2, ja3, ja4])
   def joint_angles_estimation(self):
-    res1 = least_squares(self.K30,(0,0,0),self.jocabian30,bounds = (-math.pi / 2, math.pi / 2))
+    res1 = least_squares(self.K30_for_esti,(0,0,0),self.jocabian30,bounds = (-math.pi / 2, math.pi / 2))
     self.j1 = res1.x[0]
     self.j2 = res1.x[1]
     self.j3 = res1.x[2]
-    res2 = least_squares(self.K40,0,bounds = (-math.pi / 2, math.pi / 2))
-    self.j4 = res2.x[0]
-    return np.array([self.j1,self.j2,self.j3,self.j4])
+    # res2 = least_squares(self.K40, 0,bounds = (-math.pi / 2, math.pi / 2))
+    # self.j4 = res2.x[0]
+    return np.array([self.j1,self.j2,self.j3,])
 
+class Esti_Angel_Model(nn.Module):
+  def __init__(self, input_dim, output_dim):
+    super(Esti_Angel_Model, self).__init__()
+    self.input_dim = input_dim
+    self.output_dim = output_dim
+
+    self.model = nn.Sequential(
+      nn.Linear(input_dim, 100),
+      nn.ReLU(),
+      nn.Linear(100, 100),
+      nn.ReLU(),
+      nn.Linear(100, output_dim),
+      nn.Sigmoid()
+    )
+  def forward(self, input_data):
+    out = self.model(input_data)
+    out = out * pi
+    return out
+
+def K30(q):
+  theta1 = q[0]
+  theta2 = q[1]
+  theta3 = q[2]
+  a3 = 3.5
+  # generate from matlab
+  return np.array([
+    a3 * sin(theta1) * sin(theta3) + a3 * cos(theta1) * cos(theta2) * cos(theta3),
+    a3 * cos(theta2) * cos(theta3) * sin(theta1) - a3 * cos(theta1) * sin(theta3),
+    a3 * cos(theta3) * sin(theta2) + 5 / 2])
+
+def K40(q):
+  theta1 = q[0]
+  theta2 = q[1]
+  theta3 = q[2]
+  theta4 = q[3]
+  a3 = 3.5
+  a4 = 3
+  return np.array([
+    a4 * cos(theta4) * (sin(theta1) * sin(theta3) + cos(theta1) * cos(theta2) * cos(theta3)) + a3 * sin(theta1) * sin(
+      theta3) + a3 * cos(theta1) * cos(theta2) * cos(theta3) - a4 * cos(theta1) * sin(theta2) * sin(theta4),
+    a3 * cos(theta2) * cos(theta3) * sin(theta1) - a3 * cos(theta1) * sin(theta3) - a4 * cos(theta4) * (
+            cos(theta1) * sin(theta3) - cos(theta2) * cos(theta3) * sin(theta1)) - a4 * sin(theta1) * sin(
+      theta2) * sin(theta4),
+    a3 * cos(theta3) * sin(theta2) + a4 * cos(theta2) * sin(theta4) + a4 * cos(theta3) * cos(theta4) * sin(
+      theta2) + 5 / 2
+  ])
+
+def train():
+  batch_size = 256
+  # model = Esti_Angel_Model(6, 4)
+  model = torch.load("model.pth")
+  loss_fn = torch.nn.MSELoss()
+  optimazer = torch.optim.Adam(model.parameters(), lr = 0.0001)
+  time = 0
+  loss_all = 0
+  save_thredshold = 0.5
+  for ep in range(100):
+    for t in range(1000):
+
+      if time > 100000:
+        print("reset time")
+        time = 0
+      y = []
+      x = []
+      for _ in range(batch_size):
+        time +=1
+        ja1 = np.pi * np.sin(np.pi / 15. * time)
+        ja2 = np.pi / 2 * np.sin(np.pi / 15. * time)
+        ja3 = np.pi / 2 * np.sin(np.pi / 18. * time)
+        ja4 = np.pi / 2 * np.sin(np.pi / 20. * time)  # without direction
+        q = np.array([ja1, ja2, ja3, ja4])
+        q = q + np.array([pi/2,pi/2,0,0])
+        green_circle = K30(q[0:3])
+        red_circle = K40(q)
+        x.append(np.concatenate([green_circle,red_circle], axis=-1))
+        y.append(q)
+      # BP
+      x = torch.as_tensor(x, dtype=torch.float)
+      y = torch.as_tensor(y, dtype=torch.float)
+      model.zero_grad()
+      y_pred = model(x)
+      loss = loss_fn(y_pred, y)
+      loss_all += loss
+      loss.backward()
+      optimazer.step()
+      if (t+1)%100 ==0:
+        everage_loss = loss_all/100
+        print("ep:{}, loss: {}".format(ep,everage_loss))
+        if everage_loss < save_thredshold:
+          save_thredshold-=0.05
+          torch.save(model, "model_{}".format(everage_loss)+".pth")
+        loss_all = 0
+
+def test():
+  model = torch.load("model.pth")
+  for time in range(100000):
+    ja1 = np.pi * np.sin(np.pi / 15. * time)
+    ja2 = np.pi / 2 * np.sin(np.pi / 15. * time)
+    ja3 = np.pi / 2 * np.sin(np.pi / 18. * time)
+    ja4 = np.pi / 2 * np.sin(np.pi / 20. * time)  # without direction
+    q = np.array([ja1, ja2, ja3, ja4])
+    q = q + np.array([pi / 2, pi / 2, 0, 0])
+    print("q:{}".format(q))
+    green_circle = K30(q[0:3])
+    red_circle = K40(q)
+    x = np.concatenate([green_circle, red_circle], axis=-1)
+    x = torch.as_tensor(x, dtype=torch.float)
+    y = model(x)
+    print("y_pred:{}".format(y.data))
+    print("-------------------------")
 def main(args):
   ic = image_converter()
   try:
@@ -387,5 +504,6 @@ def main(args):
 
 # run the code if the node is called
 if __name__ == '__main__':
-    main(sys.argv)
-
+    # main(sys.argv)
+  train()
+  # test()
