@@ -351,14 +351,18 @@ class image_converter:
     a = cv_utils.pixel2meter(self.cv_image2)
     orange_mask = cv_utils.detect_orange(self.cv_image2)
     target_proj_pos2 = cv_utils.find_target(orange_mask, self.template)
-    target_proj_pos2[0] = target_proj_pos2[0] + 24 # the temeple is 48*48
-    target_proj_pos2[1]= target_proj_pos2[1] + 24
+    target_proj_pos2[0] = target_proj_pos2[0] + 24  # the temeple is 48*48
+    target_proj_pos2[1] = target_proj_pos2[1] + 24
     # mark the target with a red circle
     # cv2.circle(self.cv_image2, (target_proj_pos2[0], target_proj_pos2[1]),5,(0,0,255))
     target_x = (target_proj_pos2[0] - self.y_cam_pos_yellow[0]) * a * 0.8
-    target_x = np.clip(target_x, -3.0,3)
-    target_y = (self.x_cam_pos_tar[0] - self.x_cam_pos_yellow[0]) *a *0.8
-    target_z = (self.x_cam_pos_yellow[1] - self.x_cam_pos_tar[1]) * a *0.8
+    target_x = np.clip(target_x, -3, 3)
+    target_y = (self.x_cam_pos_tar[0] - self.x_cam_pos_yellow[0]) * a * 0.9 + 1.7  # the 1.7 is camera view offset
+    # target_y = target_y * 0.8
+    target_y = np.clip(target_y, -2.5, 2.5)
+    target_z = (self.x_cam_pos_yellow[1] - self.x_cam_pos_tar[1]) * a
+    target_z = (target_z - 7) * 0.8 + 7 - 0.5
+    target_z = np.clip(target_z, 6, 8)
     return np.array([target_x, target_y, target_z])
 
   def calcu_fk_end_pos(self,ja1,ja2,ja3,ja4):
