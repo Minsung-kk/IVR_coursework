@@ -20,6 +20,7 @@ class image_converter:
   # Defines publisher and subscriber
   def __init__(self):
     # initialize the node named image_processing
+
     rospy.init_node('image_processing', anonymous=True)
     # initialize a publisher to send images from camera2 to a topic named image_topic2
     self.image_pub2 = rospy.Publisher("image_topic2",Image, queue_size = 1)
@@ -31,7 +32,7 @@ class image_converter:
     # x camera msg
     self.x_cam_pos_sub = rospy.Subscriber("x_cam_pos", Float64MultiArray, self.x_cam_callback)
     # target 3D postion
-    self.target_3Dposition_pub = rospy.Publisher("/target/position_estimation", Float64MultiArray, queue_size=10)
+    self.target_3Dposition_pub = rospy.Publisher("/target/position_estimation", Float64, queue_size=10)
     self.cv_end_pos_pub = rospy.Publisher("cv_end_pos", Float64MultiArray, queue_size=10)
     self.template = cv2.imread("image_crop.png", 0)
     # joint control
@@ -39,10 +40,19 @@ class image_converter:
     self.robot_joint2_pub = rospy.Publisher("/robot/joint2_position_controller/command", Float64, queue_size=10)
     self.robot_joint3_pub = rospy.Publisher("/robot/joint3_position_controller/command", Float64, queue_size=10)
     self.robot_joint4_pub = rospy.Publisher("/robot/joint4_position_controller/command", Float64, queue_size=10)
-    self.robot_joint_angle_pub = rospy.Publisher("joint_angle_cv", Float64MultiArray, queue_size=10)
+
+    # joint estimate
+    self.robot_joint_angle1_pub = rospy.Publisher("joint_angle1_cv", Float64, queue_size=10)
+    self.robot_joint_angle2_pub = rospy.Publisher("joint_angle2_cv", Float64,queue_size=10)
+    self.robot_joint_angle3_pub = rospy.Publisher("joint_angle3_cv", Float64, queue_size=10)
     self.robot_joint_angle4 = rospy.Publisher("joint_angle4_cv", Float64, queue_size=10)
+
+    # get time
     self.start_time = rospy.get_time()
-    self.last_ja4 = 0
+    # model
+    self.nn_model = torch.load("model_0491.pth")
+
+
   def x_cam_callback(self, data):
     try:
       x_cam_pos = np.array(data.data)
@@ -64,23 +74,22 @@ class image_converter:
     # get all cirlce's 3d position
     self.global_circle_pos = self.estimate_global_pos(self.cv_image2)
     global_target_pos = self.estimate_target_3Dposition()
+    target_pub = Float64MultiArray()
+    target_pub.data = global_target_pos
+
+    # get end postion
     cv_end_pos = Float64MultiArray()
     cv_end_pos.data = self.global_circle_pos["red"]
-
-
-    start_angle = np.array([0.,0.,0.2,0.])
-    start_pos = self.calcu_fk_end_pos(start_angle[0], start_angle[1], start_angle[2], start_angle[3])
-    print("target:{}".format(global_target_pos))
-    fk_pos = self.calcu_fk_end_pos(0,0,0.2,0.2)
-    print("fk:pos:{}".format(fk_pos))
-    global_target_pos = fk_pos
-    esti_angle = self.joint_angles_estimation()
-    print("esti_angle:{}".format(esti_angle))
-    # global_target_pos = np.array([4.3,-3.69, 1.87])
-    ja = self.move_from(start_angle, start_pos, global_target_pos)
-    fk_pos = self.calcu_fk_end_pos(ja[0], ja[1], ja[2], ja[3])
-    print("fk2:pos:{}".format(fk_pos))
-    print("ja {}".format(ja))
+    # estimate the angles:
+    joints_esti = self.calcu_jas_from_vision(self.global_circle_pos)
+    ja1_esti = Float64()
+    ja1_esti.data = joints_esti[0]
+    ja2_esti = Float64()
+    ja2_esti.data = joints_esti[1]
+    ja3_esti = Float64()
+    ja3_esti.data = joints_esti[2]
+    ja4_esti = Float64()
+    ja4_esti.data = joints_esti[3]
 
     # create publish var
     ja1 = Float64()
@@ -88,30 +97,34 @@ class image_converter:
     ja3 = Float64()
     ja4 = Float64()
     time = rospy.get_time() - self.start_time
-    ja1.data = ja[0]
-    ja2.data = ja[1]
-    ja3.data = ja[2]
-    ja4.data = ja[3]
-    # # ja1.data = np.pi * np.sin(np.pi / 15. * time)
-    # ja1.data = 0
-    # ja2.data = np.pi / 2 * np.sin(np.pi / 15. * time)
-    # # joint2.data = 0
-    # ja3.data = np.pi / 2 * np.sin(np.pi / 18. * time)
-    # # joint3.data = 0
-    # ja4.data = np.pi / 2 * np.sin(np.pi / 20. * time)  # without direction
-    # # ja4.data = 0
+    # print(time)
+    ja1.data = np.pi * np.sin(np.pi / 15. * time)
+    ja1.data = 0
+    ja2.data = np.pi / 2 * np.sin(np.pi / 15. * time)
+    # joint2.data = 0
+    ja3.data = np.pi / 2 * np.sin(np.pi / 18. * time)
+    # joint3.data = 0
+    ja4.data = np.pi / 2 * np.sin(np.pi / 20. * time)  # without direction
+    # ja4.data = 0
+    jas = np.array([ja1.data, ja2.data, ja3.data, ja4.data])
 
-    jas_cv = self.calcu_jas_from_vision(global_pos=self.global_circle_pos)
-    ja_pub = Float64MultiArray()
-    ja_pub.data = jas_cv
-    # print(jas_cv)
-    # ja1.data=0
-    # ja2.data=1
-    # ja3.data=1
-    # ja4.data = 1
+    # fk_red_pos = K40(self.angle_conv_J2T(jas))
+    # fk_green_pos = K30(self.angle_conv_J2T(jas))
+    # print("fk: red:{}, green:{}".format(fk_red_pos, fk_green_pos))
+    # print("circle_pos :{}".format(self.global_circle_pos))
+    # print("ja_real: {},{},{},{}".format(ja1.data, ja2.data, ja3.data, ja4.data))
+    # # 3 joints
+    # jas_cv = self.calcu_jas_from_vision(global_pos=self.global_circle_pos)
+    # jas_cv = self.joint_angles_estimation(self.global_circle_pos['green'], self.global_circle_pos['red'])
+    # jas_cv = self.angle_conv_T2J(jas_cv)
+    # print("estimate:{}".format(jas_cv))
+    # print("----------------")
     #
-    ja4_pub = Float64()
-    ja4_pub.data = jas_cv[3]
+    # ja_pub = Float64MultiArray()
+    # ja_pub.data = jas_cv
+    #
+    # ja4_pub = Float64()
+    # ja4_pub.data = jas_cv[3]
     #cv2.imwrite('image_copy.png', cv_image)
     im2=cv2.imshow('window2', self.cv_image2)
     cv2.waitKey(1)
@@ -124,8 +137,16 @@ class image_converter:
       self.robot_joint2_pub.publish(ja2)
       self.robot_joint3_pub.publish(ja3)
       self.robot_joint4_pub.publish(ja4)
-      self.robot_joint_angle_pub.publish(ja_pub)
-      self.robot_joint_angle4.publish(ja4_pub)
+
+      self.robot_joint_angle1_pub.publish(ja1_esti)
+      self.robot_joint_angle2_pub.publish(ja2_esti)
+      self.robot_joint_angle3_pub.publish(ja3_esti)
+      self.robot_joint_angle4.publish(ja4_esti)
+
+      target_pub_x = Float64()
+      target_pub_x.data = global_target_pos[0]
+      self.target_3Dposition_pub.publish(target_pub_x)
+
     except CvBridgeError as e:
       print(e)
   def angle_conv_J2T(self, ja):
@@ -305,6 +326,9 @@ class image_converter:
   def K30_for_esti(self, q):
     rel_pos = self.K30(q)
     return rel_pos - self.global_circle_pos["green"]
+  def K40_for_esti(self,q):
+    rel_pos = self.K40(q)
+    return rel_pos - self.global_circle_pos["red"]
 
   def K40(self, q):
     theta1 = q[0]
@@ -331,9 +355,10 @@ class image_converter:
     target_proj_pos2[1]= target_proj_pos2[1] + 24
     # mark the target with a red circle
     # cv2.circle(self.cv_image2, (target_proj_pos2[0], target_proj_pos2[1]),5,(0,0,255))
-    target_x = (target_proj_pos2[0] - self.y_cam_pos_yellow[0]) * a
-    target_y = (self.x_cam_pos_tar[0] - self.x_cam_pos_yellow[0]) *a
-    target_z = (self.x_cam_pos_yellow[1] - self.x_cam_pos_tar[1]) * a
+    target_x = (target_proj_pos2[0] - self.y_cam_pos_yellow[0]) * a * 0.8
+    target_x = np.clip(target_x, -3.0,3)
+    target_y = (self.x_cam_pos_tar[0] - self.x_cam_pos_yellow[0]) *a *0.8
+    target_z = (self.x_cam_pos_yellow[1] - self.x_cam_pos_tar[1]) * a *0.8
     return np.array([target_x, target_y, target_z])
 
   def calcu_fk_end_pos(self,ja1,ja2,ja3,ja4):
@@ -375,34 +400,43 @@ class image_converter:
       ja4 = -ja4
 
     return np.array([0, ja2, ja3, ja4])
-  def joint_angles_estimation(self):
-    res1 = least_squares(self.K30_for_esti,(0,0,0),self.jocabian30,bounds = (-math.pi / 2, math.pi / 2))
-    self.j1 = res1.x[0]
-    self.j2 = res1.x[1]
-    self.j3 = res1.x[2]
-    # res2 = least_squares(self.K40, 0,bounds = (-math.pi / 2, math.pi / 2))
-    # self.j4 = res2.x[0]
-    return np.array([self.j1,self.j2,self.j3,])
+
+
+  def joint_angles_estimation(self, green, red):
+    # with torch.no_grad():
+    #   nn_input = np.concatenate([green, red],axis=-1)
+    #   nn_input = torch.as_tensor(nn_input, dtype=torch.float)
+    #   out = self.nn_model(nn_input)
+
+    res1 = least_squares(self.K30_for_esti,(pi/2,pi/2,0),self.jocabian30, bounds = ([pi/2, 0, -pi/2],[pi/2 + 0.000001,pi, pi/2]))
+    angle_esti = res1.x
+    theta1_start = pi/2
+    print("res:{}".format(angle_esti))
+    print("green_pos:{}".format(self.K30(angle_esti[0:3])))
+    # print("red_pos:{}".format(self.K40(angle_esti)))
+    return np.array(angle_esti)
 
 class Esti_Angel_Model(nn.Module):
   def __init__(self, input_dim, output_dim):
     super(Esti_Angel_Model, self).__init__()
     self.input_dim = input_dim
     self.output_dim = output_dim
-
+    width = 100
     self.model = nn.Sequential(
-      nn.Linear(input_dim, 100),
+      nn.Linear(input_dim, width),
       nn.ReLU(),
-      nn.Linear(100, 100),
+      nn.Linear(width,width),
       nn.ReLU(),
-      nn.Linear(100, output_dim),
+      nn.Linear(width,width),
+      nn.ReLU(),
+      nn.Linear(width, output_dim),
       nn.Sigmoid()
     )
   def forward(self, input_data):
     out = self.model(input_data)
     out = out * pi
     return out
-
+# green ball pos
 def K30(q):
   theta1 = q[0]
   theta2 = q[1]
@@ -413,7 +447,7 @@ def K30(q):
     a3 * sin(theta1) * sin(theta3) + a3 * cos(theta1) * cos(theta2) * cos(theta3),
     a3 * cos(theta2) * cos(theta3) * sin(theta1) - a3 * cos(theta1) * sin(theta3),
     a3 * cos(theta3) * sin(theta2) + 5 / 2])
-
+# red ball pos
 def K40(q):
   theta1 = q[0]
   theta2 = q[1]
@@ -431,25 +465,52 @@ def K40(q):
       theta2) + 5 / 2
   ])
 
+def get_T_std(alpha, theta, d, a):
+  """
+  get the FK matrix
+  :param alpha:
+  :param theta:
+  :param d:
+  :param a:
+  :return:
+  """
+  return np.array([
+    [math.cos(theta), -math.sin(theta) * math.cos(alpha), math.sin(theta) * math.sin(alpha), a * math.cos(theta)],
+    [math.sin(theta), math.cos(theta) * math.cos(alpha), -math.cos(theta) * math.sin(alpha), a * math.sin(theta)],
+    [0., math.sin(alpha), math.cos(alpha), d],
+    [0, 0, 0, 1]
+  ])
+
+def K20(q):
+  a = np.array([0, 0, 0, 1])
+  d1 = 2.5
+  theta2 = q[1] + math.pi / 2
+  a2 = 0
+  theta1 = q[0] + math.pi / 2
+  T_1_0 = get_T_std(alpha=math.pi / 2, a=0, d=d1, theta=theta1)
+  T_2_1 = get_T_std(alpha=math.pi / 2, a=a2, d=0, theta=theta2)
+  T_2_0 = T_1_0.dot(T_2_1)
+  return T_2_0[0:3,3]
+
 def train():
   batch_size = 256
-  # model = Esti_Angel_Model(6, 4)
-  model = torch.load("model.pth")
-  loss_fn = torch.nn.MSELoss()
-  optimazer = torch.optim.Adam(model.parameters(), lr = 0.0001)
+  model = Esti_Angel_Model(6, 4)
+  # model = torch.load("model.pth")
+  loss_fn = torch.nn.L1Loss()
+  optimazer = torch.optim.Adam(model.parameters(), lr = 0.001)
   time = 0
   loss_all = 0
-  save_thredshold = 0.5
+  save_thredshold = 0.6
   for ep in range(100):
     for t in range(1000):
 
-      if time > 100000:
+      if time > 10000:
         print("reset time")
         time = 0
       y = []
       x = []
       for _ in range(batch_size):
-        time +=1
+        time +=0.01
         ja1 = np.pi * np.sin(np.pi / 15. * time)
         ja2 = np.pi / 2 * np.sin(np.pi / 15. * time)
         ja3 = np.pi / 2 * np.sin(np.pi / 18. * time)
@@ -473,12 +534,13 @@ def train():
         everage_loss = loss_all/100
         print("ep:{}, loss: {}".format(ep,everage_loss))
         if everage_loss < save_thredshold:
+          print("save")
           save_thredshold-=0.05
           torch.save(model, "model_{}".format(everage_loss)+".pth")
         loss_all = 0
 
 def test():
-  model = torch.load("model.pth")
+  model = torch.load("model_0491.pth")
   for time in range(100000):
     ja1 = np.pi * np.sin(np.pi / 15. * time)
     ja2 = np.pi / 2 * np.sin(np.pi / 15. * time)
@@ -504,6 +566,8 @@ def main(args):
 
 # run the code if the node is called
 if __name__ == '__main__':
-    # main(sys.argv)
-  train()
+    main(sys.argv)
+    # q = np.array([pi/2, pi/2, 0,0])
+    # print(K20(q))
+  # train()
   # test()

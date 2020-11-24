@@ -38,6 +38,7 @@ class image_converter:
     self.fk_end_pos = rospy.Publisher("fk_end_pos", Float64MultiArray, queue_size=10)
     self.template = cv2.imread("image_crop.png", 0)
     self.time = 1
+
     if self.template is None:
       print("load the templete Failde, \n Please check the image_crop.png is in"+os.getcwd())
       exit(1)
