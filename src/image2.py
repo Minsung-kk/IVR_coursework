@@ -13,8 +13,6 @@ from std_msgs.msg import Float64MultiArray, Float64
 from cv_bridge import CvBridge, CvBridgeError
 import cv_utils
 from math import *
-import torch
-import torch.nn as nn
 class image_converter:
 
   # Defines publisher and subscriber
@@ -49,9 +47,6 @@ class image_converter:
 
     # get time
     self.start_time = rospy.get_time()
-    # model
-    self.nn_model = torch.load("model_029.pth")
-
 
   def x_cam_callback(self, data):
     try:
@@ -109,11 +104,11 @@ class image_converter:
     jas = np.array([ja1.data, ja2.data, ja3.data, ja4.data])
 
     # jas_cv = self.calcu_jas_from_vision(global_pos=self.global_circle_pos)
-    jas4_cv = self.joint_angles_estimation(self.global_circle_pos['green'], self.global_circle_pos['red'])
-    jas4_cv = self.angle_conv_T2J(jas4_cv)
-    print("real:{}".format(jas))
-    print("esti:{}".format(jas4_cv))
-    ja3_esti.data = jas4_cv[2]
+    # jas4_cv = self.joint_angles_estimation(self.global_circle_pos['green'], self.global_circle_pos['red'])
+    # jas4_cv = self.angle_conv_T2J(jas4_cv)
+    # print("real:{}".format(jas))
+    # print("esti:{}".format(jas4_cv))
+    # ja3_esti.data = jas4_cv[2]
     # print("jas:{}".format(jas))
     # print("estimate:{}".format(jas_cv))
 
@@ -124,10 +119,10 @@ class image_converter:
     try:
       self.image_pub2.publish(self.bridge.cv2_to_imgmsg(self.cv_image2, "bgr8"))
       self.cv_end_pos_pub.publish(cv_end_pos)
-      self.robot_joint1_pub.publish(ja1)
-      self.robot_joint2_pub.publish(ja2)
-      self.robot_joint3_pub.publish(ja3)
-      self.robot_joint4_pub.publish(ja4)
+      # self.robot_joint1_pub.publish(ja1)
+      # self.robot_joint2_pub.publish(ja2)
+      # self.robot_joint3_pub.publish(ja3)
+      # self.robot_joint4_pub.publish(ja4)
 
       self.robot_joint_angle1_pub.publish(ja1_esti)
       self.robot_joint_angle2_pub.publish(ja2_esti)
@@ -419,32 +414,9 @@ class image_converter:
     :param red: red position
     :return: np array [ja1,ja2,ja3,ja4]
     """
-    with torch.no_grad():
-      nn_input = np.concatenate([green, red],axis=-1)
-      nn_input = torch.as_tensor(nn_input, dtype=torch.float)
-      out = self.nn_model(nn_input)
-    return np.array(out)
+    pass
+    # return np.array(out)
 
-
-class Esti_Angel_Model(nn.Module):
-  """
-  Neural Network framework
-  """
-  def __init__(self, input_dim, output_dim):
-    super(Esti_Angel_Model, self).__init__()
-    self.input_dim = input_dim
-    self.output_dim = output_dim
-    width = 256
-    self.model = nn.Sequential(
-      nn.Linear(input_dim, width),
-      nn.ReLU(),
-      nn.Linear(width,width),
-      nn.ReLU(),
-      nn.Linear(width,width),
-      nn.ReLU(),
-      nn.Linear(width, output_dim),
-      nn.Tanh()
-    )
   def forward(self, input_data):
     out = self.model(input_data)
     out = out * pi
@@ -506,70 +478,6 @@ def K20(q):
   T_2_0 = T_1_0.dot(T_2_1)
   return T_2_0[0:3,3]
 
-def train():
-  batch_size = 256
-  model = Esti_Angel_Model(6, 4)
-  # model = torch.load("model_029.pth")
-  loss_fn = torch.nn.L1Loss()
-  optimazer = torch.optim.Adam(model.parameters(), lr = 0.0001)
-  time = 0
-  loss_all = 0
-  save_thredshold = 0.6
-  for ep in range(100):
-    for t in range(1000):
-
-      if time > 10000:
-        print("reset time")
-        time = 0
-      y = []
-      x = []
-      for _ in range(batch_size):
-        time +=0.01
-        ja1 = np.pi * np.sin(np.pi / 15. * time)
-        ja2 = np.pi / 2 * np.sin(np.pi / 15. * time)
-        ja3 = np.pi / 2 * np.sin(np.pi / 18. * time)
-        ja4 = np.pi / 2 * np.sin(np.pi / 20. * time)  # without direction
-        q = np.array([ja1, ja2, ja3, ja4])
-        q = q + np.array([pi/2,pi/2,0,0])
-        green_circle = K30(q[0:3])
-        red_circle = K40(q)
-        x.append(np.concatenate([green_circle,red_circle], axis=-1))
-        y.append(q)
-      # BP
-      x = torch.as_tensor(x, dtype=torch.float)
-      y = torch.as_tensor(y, dtype=torch.float)
-      model.zero_grad()
-      y_pred = model(x)
-      loss = loss_fn(y_pred, y)
-      loss_all += loss
-      loss.backward()
-      optimazer.step()
-      if (t+1)%100 ==0:
-        everage_loss = loss_all/100
-        print("ep:{}, loss: {}".format(ep,everage_loss))
-        if everage_loss < save_thredshold:
-          print("save")
-          save_thredshold-=0.05
-          torch.save(model, "model_{}".format(everage_loss)+".pth")
-        loss_all = 0
-
-def test():
-  model = torch.load("model_024.pth")
-  for time in range(100000):
-    ja1 = np.pi * np.sin(np.pi / 15. * time)
-    ja2 = np.pi / 2 * np.sin(np.pi / 15. * time)
-    ja3 = np.pi / 2 * np.sin(np.pi / 18. * time)
-    ja4 = np.pi / 2 * np.sin(np.pi / 20. * time)  # without direction
-    q = np.array([ja1, ja2, ja3, ja4])
-    q = q + np.array([pi / 2, pi / 2, 0, 0])
-    print("q:{}".format(q))
-    green_circle = K30(q[0:3])
-    red_circle = K40(q)
-    x = np.concatenate([green_circle, red_circle], axis=-1)
-    x = torch.as_tensor(x, dtype=torch.float)
-    y = model(x)
-    print("y_pred:{}".format(y.data))
-    print("-------------------------")
 def main(args):
   ic = image_converter()
   try:
@@ -581,7 +489,3 @@ def main(args):
 # run the code if the node is called
 if __name__ == '__main__':
     main(sys.argv)
-    # q = np.array([pi/2, pi/2, 0,0])
-    # print(K20(q))
-  # train()
-  # test()
