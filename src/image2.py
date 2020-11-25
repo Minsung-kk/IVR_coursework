@@ -30,7 +30,7 @@ class image_converter:
     # x camera msg
     self.x_cam_pos_sub = rospy.Subscriber("x_cam_pos", Float64MultiArray, self.x_cam_callback)
     # target 3D postion
-    self.target_3Dposition_pub = rospy.Publisher("/target/position_estimation", Float64, queue_size=10)
+    self.target_3Dposition_pub = rospy.Publisher("/target/position_estimation", Float64MultiArray, queue_size=10)
     self.cv_end_pos_pub = rospy.Publisher("cv_end_pos", Float64MultiArray, queue_size=10)
     self.template = cv2.imread("image_crop.png", 0)
     # joint control
@@ -68,49 +68,56 @@ class image_converter:
       print(e)
     # get all cirlce's 3d position
     self.global_circle_pos = self.estimate_global_pos(self.cv_image2)
-    global_target_pos = self.estimate_target_3Dposition()
+    self.global_target_pos = self.estimate_target_3Dposition()
     target_pub = Float64MultiArray()
-    target_pub.data = global_target_pos
+    target_pub.data = self.global_target_pos
 
     # get end postion
     cv_end_pos = Float64MultiArray()
     cv_end_pos.data = self.global_circle_pos["red"]
     # estimate the angles:
-    joints_esti = self.calcu_jas_from_vision(self.global_circle_pos)
+    joints_angle_esti = self.calcu_jas_from_vision(self.global_circle_pos)
     ja1_esti = Float64()
-    ja1_esti.data = joints_esti[0]
+    ja1_esti.data = joints_angle_esti[0]
     ja2_esti = Float64()
-    ja2_esti.data = joints_esti[1]
+    ja2_esti.data = joints_angle_esti[1]
     ja3_esti = Float64()
-    ja3_esti.data = joints_esti[2]
+    ja3_esti.data = joints_angle_esti[2]
     ja4_esti = Float64()
-    ja4_esti.data = joints_esti[3]
+    ja4_esti.data = joints_angle_esti[3]
 
-    # create publish var
     ja1 = Float64()
     ja2 = Float64()
     ja3 = Float64()
     ja4 = Float64()
     time = rospy.get_time() - self.start_time
+
+    # =========================================
+    # If the accuracy of joint angles not stable enough,
+    # maybe you can control by a numerical IK like follows, and set a nearly start point from joint angles estimate
+    # The follow one is start from (0,0,0)
+    # jas4_cv = self.fit_joint_angles(joints_angle_esti)
+    # jas4_cv = self.angle_conv_T2J(jas4_cv)
+    # ja1.data = jas4_cv[0]
+    # ja2.data = jas4_cv[1]
+    # ja3.data = jas4_cv[2]
+    # ja4.data = jas4_cv[3]
+    # ==================================
+
+    # create publish var
+
     # print(time)
-    ja1.data = np.pi * np.sin(np.pi / 15. * time)
-    # ja1.data = 0
-    ja2.data = np.pi / 2 * np.sin(np.pi / 15. * time)
-    # joint2.data = 0
-    ja3.data = np.pi / 2 * np.sin(np.pi / 18. * time)
-    # joint3.data = 0
-    ja4.data = np.pi / 2 * np.sin(np.pi / 20. * time)  # without direction
-    # ja4.data = 0
+    # ja1.data = np.pi * np.sin(np.pi / 15. * time)
+    #
+    #
+    # ja2.data = np.pi / 2 * np.sin(np.pi / 15. * time)
+    #
+    # ja3.data = np.pi / 2 * np.sin(np.pi / 18. * time)
+    #
+    # ja4.data = np.pi / 2 * np.sin(np.pi / 20. * time)  # without direction
+    #
     jas = np.array([ja1.data, ja2.data, ja3.data, ja4.data])
 
-    # jas_cv = self.calcu_jas_from_vision(global_pos=self.global_circle_pos)
-    # jas4_cv = self.joint_angles_estimation(self.global_circle_pos['green'], self.global_circle_pos['red'])
-    # jas4_cv = self.angle_conv_T2J(jas4_cv)
-    # print("real:{}".format(jas))
-    # print("esti:{}".format(jas4_cv))
-    # ja3_esti.data = jas4_cv[2]
-    # print("jas:{}".format(jas))
-    # print("estimate:{}".format(jas_cv))
 
     im2=cv2.imshow('window2', self.cv_image2)
     cv2.waitKey(1)
@@ -119,10 +126,10 @@ class image_converter:
     try:
       self.image_pub2.publish(self.bridge.cv2_to_imgmsg(self.cv_image2, "bgr8"))
       self.cv_end_pos_pub.publish(cv_end_pos)
-      # self.robot_joint1_pub.publish(ja1)
-      # self.robot_joint2_pub.publish(ja2)
-      # self.robot_joint3_pub.publish(ja3)
-      # self.robot_joint4_pub.publish(ja4)
+      self.robot_joint1_pub.publish(ja1)
+      self.robot_joint2_pub.publish(ja2)
+      self.robot_joint3_pub.publish(ja3)
+      self.robot_joint4_pub.publish(ja4)
 
       self.robot_joint_angle1_pub.publish(ja1_esti)
       self.robot_joint_angle2_pub.publish(ja2_esti)
@@ -135,7 +142,9 @@ class image_converter:
       print(e)
 
   def angle_conv_J2T(self, ja):
-    return ja+np.array([pi/2, pi/2, 0, 0])
+    ret = np.clip(ja+np.array([pi/2, pi/2, 0, 0]),[-pi/2, 0, -pi/2, -pi/2], [pi/2*3 , pi, pi/2, pi/2])
+    return ret
+
 
   def angle_conv_T2J(self, theta):
     return theta- np.array([pi/2, pi/2, 0, 0])
@@ -319,7 +328,7 @@ class image_converter:
     return rel_pos - self.global_circle_pos["green"]
   def K40_for_esti(self,q):
     rel_pos = self.K40(q)
-    return rel_pos - self.global_circle_pos["red"]
+    return rel_pos - self.global_target_pos
 
   def K40(self, q):
     theta1 = q[0]
@@ -405,15 +414,20 @@ class image_converter:
     return np.array([0, ja2, ja3, ja4])
 
 
-  def joint_angles_estimation(self, green, red):
+  def fit_joint_angles(self, q):
     """
     To estimate the Joint1 ~ Joint4 angles use Neural Network
     :param green: green position
     :param red: red position
     :return: np array [ja1,ja2,ja3,ja4]
     """
-    pass
-    # return np.array(out)
+    theta = self.angle_conv_J2T(q)
+    res = least_squares(self.K40_for_esti, (theta[0], theta[1], theta[2], theta[3]), self.jocabian40, bounds=([-pi/2-0.1, 0, -pi/2, -pi/2], [pi/2*3+0.1, pi, pi/2, pi/2]))
+    theta = res.x
+
+    return theta
+
+
 
 def main(args):
   ic = image_converter()
