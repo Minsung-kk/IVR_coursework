@@ -50,7 +50,7 @@ class image_converter:
     # get time
     self.start_time = rospy.get_time()
     # model
-    self.nn_model = torch.load("model_0491.pth")
+    self.nn_model = torch.load("model_029.pth")
 
 
   def x_cam_callback(self, data):
@@ -99,7 +99,7 @@ class image_converter:
     time = rospy.get_time() - self.start_time
     # print(time)
     ja1.data = np.pi * np.sin(np.pi / 15. * time)
-    ja1.data = 0
+    # ja1.data = 0
     ja2.data = np.pi / 2 * np.sin(np.pi / 15. * time)
     # joint2.data = 0
     ja3.data = np.pi / 2 * np.sin(np.pi / 18. * time)
@@ -108,24 +108,15 @@ class image_converter:
     # ja4.data = 0
     jas = np.array([ja1.data, ja2.data, ja3.data, ja4.data])
 
-    # fk_red_pos = K40(self.angle_conv_J2T(jas))
-    # fk_green_pos = K30(self.angle_conv_J2T(jas))
-    # print("fk: red:{}, green:{}".format(fk_red_pos, fk_green_pos))
-    # print("circle_pos :{}".format(self.global_circle_pos))
-    # print("ja_real: {},{},{},{}".format(ja1.data, ja2.data, ja3.data, ja4.data))
-    # # 3 joints
     # jas_cv = self.calcu_jas_from_vision(global_pos=self.global_circle_pos)
-    # jas_cv = self.joint_angles_estimation(self.global_circle_pos['green'], self.global_circle_pos['red'])
-    # jas_cv = self.angle_conv_T2J(jas_cv)
+    jas4_cv = self.joint_angles_estimation(self.global_circle_pos['green'], self.global_circle_pos['red'])
+    jas4_cv = self.angle_conv_T2J(jas4_cv)
+    print("real:{}".format(jas))
+    print("esti:{}".format(jas4_cv))
+    ja3_esti.data = jas4_cv[2]
+    # print("jas:{}".format(jas))
     # print("estimate:{}".format(jas_cv))
-    # print("----------------")
-    #
-    # ja_pub = Float64MultiArray()
-    # ja_pub.data = jas_cv
-    #
-    # ja4_pub = Float64()
-    # ja4_pub.data = jas_cv[3]
-    #cv2.imwrite('image_copy.png', cv_image)
+
     im2=cv2.imshow('window2', self.cv_image2)
     cv2.waitKey(1)
 
@@ -149,12 +140,14 @@ class image_converter:
 
     except CvBridgeError as e:
       print(e)
+
   def angle_conv_J2T(self, ja):
     return ja+np.array([pi/2, pi/2, 0, 0])
 
   def angle_conv_T2J(self, theta):
     return theta- np.array([pi/2, pi/2, 0, 0])
-  # don't use alone
+
+  # don't use thhis alone
   def get_global_pos(self, x_cam_pos, y_cam_pos, x_cam_pos_yellow, y_cam_pos_yellow, a):
     if x_cam_pos[0] == -1:
       x = a * (y_cam_pos[0] - y_cam_pos_yellow[0])
@@ -173,6 +166,11 @@ class image_converter:
     return ret
 
   def estimate_global_pos(self, image):
+    """
+    Estimate all Joints positions
+    :param image:
+    :return: Directionary
+    """
     self.y_cam_pos_yellow = cv_utils.detect_yellow(self.cv_image2)
     self.y_cam_pos_blue = cv_utils.detect_blue(self.cv_image2)
     self.y_cam_pos_green = cv_utils.detect_green(self.cv_image2)
@@ -188,8 +186,8 @@ class image_converter:
            "green":green_global,
            "red":red_global}
     return ret
-# call the class
 
+# call the class
   def move_from(self, ja, start_pos, end_pos):
     dt = 10
     delt_angle = np.array([math.pi / 2, math.pi / 2, 0, 0])
@@ -348,6 +346,10 @@ class image_converter:
     ])
 
   def estimate_target_3Dposition(self):
+    """
+    Estimate the target orange ball
+    :return: [x,y,z]
+    """
     a = cv_utils.pixel2meter(self.cv_image2)
     orange_mask = cv_utils.detect_orange(self.cv_image2)
     target_proj_pos2 = cv_utils.find_target(orange_mask, self.template)
@@ -387,6 +389,11 @@ class image_converter:
     return a[0:3]
 
   def calcu_jas_from_vision(self, global_pos):
+    """
+    This function is used to calcu the joint2, joint3, joint4 angles, when Join1 angle = 0
+    :param global_pos:
+    :return: np array, [0, ja2, ja3, ja4]
+    """
     ja2 = -np.arctan2(global_pos["green"][1] - global_pos["blue"][1], global_pos["green"][2] - global_pos["blue"][2])
     ja2 = np.clip(ja2.data, -np.pi / 2, np.pi / 2)
     ja3 = np.arctan2(global_pos["green"][0] - global_pos["blue"][0], global_pos["green"][2] - global_pos["blue"][2])
@@ -397,7 +404,6 @@ class image_converter:
     v_c = np.cross(v3, v4)
     sin_theta = np.linalg.norm(v_c) / (np.linalg.norm(v3) * np.linalg.norm(v4))
     cos_theta = v3.dot(v4) / (np.linalg.norm(v3) * np.linalg.norm(v4))
-    # ja4.data = np.arccos(v3.dot(v4)/(np.sqrt(np.sum(v3**2)) * np.sqrt(np.sum(v4**2))))
     ja4 = np.arctan2(sin_theta, cos_theta)
     inv_flag = 0
     if v_c[0] < 0: # because the direct is about x axis
@@ -407,25 +413,28 @@ class image_converter:
 
 
   def joint_angles_estimation(self, green, red):
-    # with torch.no_grad():
-    #   nn_input = np.concatenate([green, red],axis=-1)
-    #   nn_input = torch.as_tensor(nn_input, dtype=torch.float)
-    #   out = self.nn_model(nn_input)
+    """
+    To estimate the Joint1 ~ Joint4 angles use Neural Network
+    :param green: green position
+    :param red: red position
+    :return: np array [ja1,ja2,ja3,ja4]
+    """
+    with torch.no_grad():
+      nn_input = np.concatenate([green, red],axis=-1)
+      nn_input = torch.as_tensor(nn_input, dtype=torch.float)
+      out = self.nn_model(nn_input)
+    return np.array(out)
 
-    res1 = least_squares(self.K30_for_esti,(pi/2,pi/2,0),self.jocabian30, bounds = ([pi/2, 0, -pi/2],[pi/2 + 0.000001,pi, pi/2]))
-    angle_esti = res1.x
-    theta1_start = pi/2
-    print("res:{}".format(angle_esti))
-    print("green_pos:{}".format(self.K30(angle_esti[0:3])))
-    # print("red_pos:{}".format(self.K40(angle_esti)))
-    return np.array(angle_esti)
 
 class Esti_Angel_Model(nn.Module):
+  """
+  Neural Network framework
+  """
   def __init__(self, input_dim, output_dim):
     super(Esti_Angel_Model, self).__init__()
     self.input_dim = input_dim
     self.output_dim = output_dim
-    width = 100
+    width = 256
     self.model = nn.Sequential(
       nn.Linear(input_dim, width),
       nn.ReLU(),
@@ -434,12 +443,13 @@ class Esti_Angel_Model(nn.Module):
       nn.Linear(width,width),
       nn.ReLU(),
       nn.Linear(width, output_dim),
-      nn.Sigmoid()
+      nn.Tanh()
     )
   def forward(self, input_data):
     out = self.model(input_data)
     out = out * pi
     return out
+
 # green ball pos
 def K30(q):
   theta1 = q[0]
@@ -499,9 +509,9 @@ def K20(q):
 def train():
   batch_size = 256
   model = Esti_Angel_Model(6, 4)
-  # model = torch.load("model.pth")
+  # model = torch.load("model_029.pth")
   loss_fn = torch.nn.L1Loss()
-  optimazer = torch.optim.Adam(model.parameters(), lr = 0.001)
+  optimazer = torch.optim.Adam(model.parameters(), lr = 0.0001)
   time = 0
   loss_all = 0
   save_thredshold = 0.6
@@ -544,7 +554,7 @@ def train():
         loss_all = 0
 
 def test():
-  model = torch.load("model_0491.pth")
+  model = torch.load("model_024.pth")
   for time in range(100000):
     ja1 = np.pi * np.sin(np.pi / 15. * time)
     ja2 = np.pi / 2 * np.sin(np.pi / 15. * time)
