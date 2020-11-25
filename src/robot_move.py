@@ -25,12 +25,60 @@ class image_converter:
     self.image_sub2 = rospy.Subscriber("/camera2/robot/image_raw",Image,self.callback2)
     # camera 1 data and msg
     self.x_cam_pos_pub = rospy.Publisher("x_cam_pos", Float64MultiArray, queue_size=10)
-    self.red_pub = rospy.Publisher("red_pos", Float64, queue_size=10)
     self.x_cam_pos_sub = rospy.Subscriber("x_cam_pos", Float64MultiArray, self.x_cam_callback)
     self.template = cv2.imread("image_crop.png", 0)
     
     # initialize the bridge between openCV and ROS
     self.bridge = CvBridge()
+
+  def x_cam_callback(self, data):
+    try:
+      x_cam_pos = np.array(data.data)
+      self.x_cam_pos_yellow = x_cam_pos[0:2]
+      self.x_cam_pos_blue = x_cam_pos[2:4]
+      self.x_cam_pos_green = x_cam_pos[4:6]
+      self.x_cam_pos_red = x_cam_pos[6:8]
+      self.x_cam_pos_tar = x_cam_pos[8:10]
+    except Exception as e:
+      print(e)  
+  # Recieve data from camera 1, process it, and publish
+  def callback1(self,data):
+    # Recieve the image
+    try:
+      self.cv_image1 = self.bridge.imgmsg_to_cv2(data, "bgr8")
+      # self.cv_image2 = self.bridge.imgmsg_to_cv2(data, "bgr8")
+    except CvBridgeError as e:
+      print(e)
+
+    # find circles for camera1  
+    x_cam_pos = self.get_cirlces()
+    
+    # Publish the results
+    try: 
+      # self.image_pub1.publish(self.bridge.cv2_to_imgmsg(self.cv_image1, "bgr8"))
+      self.x_cam_pos_pub.publish(x_cam_pos)
+    except CvBridgeError as e:
+      print(e)
+
+  def callback2(self,data):
+    # Recieve the image
+    try:
+      self.cv_image2 = self.bridge.imgmsg_to_cv2(data, "bgr8")
+    except CvBridgeError as e:
+      print(e)
+
+
+    # estimate 3D circles' positions 
+    global_circle_pos = self.estimate_global_pos(self.cv_image2)
+    # 3D orange sphere position
+    global_target_pos = self.estimate_target_3Dposition()
+    jas_cv = self.calcu_jas_from_vision(global_pos=global_circle_pos)
+
+    # Publish the results
+    # try: 
+    #   # self.image_pub2.publish(self.bridge.cv2_to_imgmsg(self.cv_image2, "bgr8"))
+    # except CvBridgeError as e:
+    #   print(e)
   
   def get_cirlces(self):
     # x cam position
@@ -115,57 +163,91 @@ class image_converter:
     # self.last_ja4 = ja4
     return np.array([0, ja2, ja3, ja4])
 
-  def x_cam_callback(self, data):
-    try:
-      x_cam_pos = np.array(data.data)
-      self.x_cam_pos_yellow = x_cam_pos[0:2]
-      self.x_cam_pos_blue = x_cam_pos[2:4]
-      self.x_cam_pos_green = x_cam_pos[4:6]
-      self.x_cam_pos_red = x_cam_pos[6:8]
-      self.x_cam_pos_tar = x_cam_pos[8:10]
-    except Exception as e:
-      print(e)  
-  # Recieve data from camera 1, process it, and publish
-  def callback1(self,data):
-    # Recieve the image
-    try:
-      self.cv_image1 = self.bridge.imgmsg_to_cv2(data, "bgr8")
-      # self.cv_image2 = self.bridge.imgmsg_to_cv2(data, "bgr8")
-    except CvBridgeError as e:
-      print(e)
+  
 
-    # find circles for camera1  
-    x_cam_pos = self.get_cirlces()
-    # red = Float64()
-    # red = cv_utils.detect_red(self.cv_image1)
+    # Transformation matrices
+  def T_matrices(joint_angles):
+    # D-H table
+    l1 = [joint_angles[0]+np.pi/2, np.pi/2, 0, 2.5]
+    l2 = [joint_angles[1]+np.pi/2, np.pi/2, 0, 0]
+    l3 = [joint_angles[2], -np.pi/2, 3.5, 0]
+    l4 = [joint_angles[3], 0, 3, 0]
+
+    Ls = np.array([l1, l2, l3, l4])  
+    n = len(Ls)
+    Ts = []
+
+    for i in range(n):
+      Ts.append(
+        np.dot(
+              [
+               [np.cos(Ls[i][0]), -np.sin(Ls[i][0]),0,0], 
+               [np.sin(Ls[i][0]), np.cos(Ls[i][0]),0,0],
+               [0,0,1,Ls[i][3]],
+               [0,0,0,1],
+              ], 
+              [
+               [1,0,0,Ls[i][2]],
+               [0,np.cos(Ls[i][1]),-np.sin(Ls[i][1]),0],
+               [0,np.sin(Ls[i][1]),np.cos(Ls[i][1]),0],
+               [0,0,0,1]
+              ]
+              )
+        )
+    return Ts
+
+  # Forward Kinematics using transformation matrices
+  def forward_kinematics(Ts):
+    temp = np.identity(4)
+    for i in Ts:
+          temp = np.dot(temp, i)
+    return temp
+
+  # Jacobian using transformation matrices
+  def jacobian(Ts):
+    # get tranformation matrices for frame 0 to 1, 0 to 2, 0 to 3, 0 to 4
+    T_0 = []
+    T_0.append(Ts[0])  
+    for i in range(1,len(Ts)):
+      T_0.append(np.dot(T_0[i-1], Ts[i]))
     
-    # Publish the results
-    try: 
-      # self.image_pub1.publish(self.bridge.cv2_to_imgmsg(self.cv_image1, "bgr8"))
-      self.x_cam_pos_pub.publish(x_cam_pos)
-      # self.red_pub.publish(red)
-    except CvBridgeError as e:
-      print(e)
+    # T_2_0 = T_0[1]
+    # T_3_0 = T_0[2]
+    # T_4_0 = T_0[3]
 
-  def callback2(self,data):
-    # Recieve the image
-    try:
-      self.cv_image2 = self.bridge.imgmsg_to_cv2(data, "bgr8")
-    except CvBridgeError as e:
-      print(e)
+    # Rotation matrices
+    R_0 = []
+    for i in T_0:
+      R_0.append(i[:3,:3])
+    # R_1_0 = R_0[0]
+    # R_2_0 = R_0[1]
+    # R_3_0 = R_0[2]
+    # R_4_0 = R_0[3]
+    
+    # Linear matrices
+    D_0 = []
+    for i in T_0:
+      D_0.append(i[:3,3])
+    # D_1_0 = Ts[0][:3,3]
+    # D_2_0 = T_2_0[:3,3]
+    # D_3_0 = T_3_0[:3,3]
+    # D_4_0 = T_4_0[:3,3]
 
+    # Jacobian
+    jacobian = np.zeros((6,4))
+    z = np.array([0, 0, 1])
+    for i in range(len(Ts)):
+      # Linear part
+      D_diff = D_0[len(Ts)-1] - D_0[i]
+      linear = np.cross(np.dot(R_0[i], z), D_diff)
+      for j in range(3):
+        jacobian[j][i] = linear[j] 
+      # Rotation part
+      rotation = np.dot(R_0[i], z)
+      for k in range(3):
+        jacobian[k+3][i] = rotation[k]
 
-    # estimate 3D circles' positions 
-    global_circle_pos = self.estimate_global_pos(self.cv_image2)
-    # 3D orange sphere position
-    global_target_pos = self.estimate_target_3Dposition()
-    jas_cv = self.calcu_jas_from_vision(global_pos=global_circle_pos)
-# 
-    # # Publish the results
-    # try: 
-    #   # self.image_pub2.publish(self.bridge.cv2_to_imgmsg(self.cv_image2, "bgr8"))
-    # except CvBridgeError as e:
-    #   print(e)
+    return jacobian
 
 # call the class
 def main(args):
@@ -179,5 +261,3 @@ def main(args):
 # run the code if the node is called
 if __name__ == '__main__':
     main(sys.argv)
-
-
