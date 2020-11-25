@@ -129,9 +129,7 @@ class image_converter:
       self.robot_joint_angle3_pub.publish(ja3_esti)
       self.robot_joint_angle4.publish(ja4_esti)
 
-      target_pub_x = Float64()
-      target_pub_x.data = global_target_pos[0]
-      self.target_3Dposition_pub.publish(target_pub_x)
+      self.target_3Dposition_pub.publish(target_pub)
 
     except CvBridgeError as e:
       print(e)
@@ -416,67 +414,6 @@ class image_converter:
     """
     pass
     # return np.array(out)
-
-  def forward(self, input_data):
-    out = self.model(input_data)
-    out = out * pi
-    return out
-
-# green ball pos
-def K30(q):
-  theta1 = q[0]
-  theta2 = q[1]
-  theta3 = q[2]
-  a3 = 3.5
-  # generate from matlab
-  return np.array([
-    a3 * sin(theta1) * sin(theta3) + a3 * cos(theta1) * cos(theta2) * cos(theta3),
-    a3 * cos(theta2) * cos(theta3) * sin(theta1) - a3 * cos(theta1) * sin(theta3),
-    a3 * cos(theta3) * sin(theta2) + 5 / 2])
-# red ball pos
-def K40(q):
-  theta1 = q[0]
-  theta2 = q[1]
-  theta3 = q[2]
-  theta4 = q[3]
-  a3 = 3.5
-  a4 = 3
-  return np.array([
-    a4 * cos(theta4) * (sin(theta1) * sin(theta3) + cos(theta1) * cos(theta2) * cos(theta3)) + a3 * sin(theta1) * sin(
-      theta3) + a3 * cos(theta1) * cos(theta2) * cos(theta3) - a4 * cos(theta1) * sin(theta2) * sin(theta4),
-    a3 * cos(theta2) * cos(theta3) * sin(theta1) - a3 * cos(theta1) * sin(theta3) - a4 * cos(theta4) * (
-            cos(theta1) * sin(theta3) - cos(theta2) * cos(theta3) * sin(theta1)) - a4 * sin(theta1) * sin(
-      theta2) * sin(theta4),
-    a3 * cos(theta3) * sin(theta2) + a4 * cos(theta2) * sin(theta4) + a4 * cos(theta3) * cos(theta4) * sin(
-      theta2) + 5 / 2
-  ])
-
-def get_T_std(alpha, theta, d, a):
-  """
-  get the FK matrix
-  :param alpha:
-  :param theta:
-  :param d:
-  :param a:
-  :return:
-  """
-  return np.array([
-    [math.cos(theta), -math.sin(theta) * math.cos(alpha), math.sin(theta) * math.sin(alpha), a * math.cos(theta)],
-    [math.sin(theta), math.cos(theta) * math.cos(alpha), -math.cos(theta) * math.sin(alpha), a * math.sin(theta)],
-    [0., math.sin(alpha), math.cos(alpha), d],
-    [0, 0, 0, 1]
-  ])
-
-def K20(q):
-  a = np.array([0, 0, 0, 1])
-  d1 = 2.5
-  theta2 = q[1] + math.pi / 2
-  a2 = 0
-  theta1 = q[0] + math.pi / 2
-  T_1_0 = get_T_std(alpha=math.pi / 2, a=0, d=d1, theta=theta1)
-  T_2_1 = get_T_std(alpha=math.pi / 2, a=a2, d=0, theta=theta2)
-  T_2_0 = T_1_0.dot(T_2_1)
-  return T_2_0[0:3,3]
 
 def main(args):
   ic = image_converter()
