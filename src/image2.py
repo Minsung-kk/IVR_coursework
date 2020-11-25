@@ -111,14 +111,14 @@ class image_converter:
     # create publish var
 
     # print(time)
-    ja1.data = np.pi * np.sin(np.pi / 15. * time)
+    # ja1.data = np.pi * np.sin(np.pi / 15. * time)
     
     
-    ja2.data = np.pi / 2 * np.sin(np.pi / 15. * time)
+    # ja2.data = np.pi / 2 * np.sin(np.pi / 15. * time)
     
-    ja3.data = np.pi / 2 * np.sin(np.pi / 18. * time)
+    # ja3.data = np.pi / 2 * np.sin(np.pi / 18. * time)
     
-    ja4.data = np.pi / 2 * np.sin(np.pi / 20. * time)  # without direction
+    # ja4.data = np.pi / 2 * np.sin(np.pi / 20. * time)  # without direction
     #
     jas = np.array([ja1.data, ja2.data, ja3.data, ja4.data])
 
