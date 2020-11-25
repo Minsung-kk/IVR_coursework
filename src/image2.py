@@ -44,6 +44,7 @@ class image_converter:
     self.robot_joint_angle2_pub = rospy.Publisher("joint_angle2_cv", Float64,queue_size=10)
     self.robot_joint_angle3_pub = rospy.Publisher("joint_angle3_cv", Float64, queue_size=10)
     self.robot_joint_angle4 = rospy.Publisher("joint_angle4_cv", Float64, queue_size=10)
+    self.robot_joint_angles_pub = rospy.Publisher("joint_angles_cv", Float64MultiArray, queue_size=10)
 
     # get time
     self.start_time = rospy.get_time()
@@ -86,6 +87,9 @@ class image_converter:
     ja4_esti = Float64()
     ja4_esti.data = joints_angle_esti[3]
 
+    jas_cv = Float64MultiArray()
+    jas_cv.data = joints_angle_esti
+
     ja1 = Float64()
     ja2 = Float64()
     ja3 = Float64()
@@ -107,14 +111,14 @@ class image_converter:
     # create publish var
 
     # print(time)
-    # ja1.data = np.pi * np.sin(np.pi / 15. * time)
-    #
-    #
-    # ja2.data = np.pi / 2 * np.sin(np.pi / 15. * time)
-    #
-    # ja3.data = np.pi / 2 * np.sin(np.pi / 18. * time)
-    #
-    # ja4.data = np.pi / 2 * np.sin(np.pi / 20. * time)  # without direction
+    ja1.data = np.pi * np.sin(np.pi / 15. * time)
+    
+    
+    ja2.data = np.pi / 2 * np.sin(np.pi / 15. * time)
+    
+    ja3.data = np.pi / 2 * np.sin(np.pi / 18. * time)
+    
+    ja4.data = np.pi / 2 * np.sin(np.pi / 20. * time)  # without direction
     #
     jas = np.array([ja1.data, ja2.data, ja3.data, ja4.data])
 
@@ -135,6 +139,7 @@ class image_converter:
       self.robot_joint_angle2_pub.publish(ja2_esti)
       self.robot_joint_angle3_pub.publish(ja3_esti)
       self.robot_joint_angle4.publish(ja4_esti)
+      self.robot_joint_angles_pub.publish(jas_cv)
 
       self.target_3Dposition_pub.publish(target_pub)
 
