@@ -44,9 +44,10 @@ class image_converter:
     self.robot_joint_angle2_pub = rospy.Publisher("joint_angle2_cv", Float64,queue_size=10)
     self.robot_joint_angle3_pub = rospy.Publisher("joint_angle3_cv", Float64, queue_size=10)
     self.robot_joint_angle4 = rospy.Publisher("joint_angle4_cv", Float64, queue_size=10)
-
+    self.angle_estim_loss = rospy.Publisher("joint_angle_estim_loss",Float64, queue_size=10)
     # get time
     self.start_time = rospy.get_time()
+
 
   def x_cam_callback(self, data):
     try:
@@ -72,6 +73,7 @@ class image_converter:
     target_pub = Float64MultiArray()
     target_pub.data = self.global_target_pos
 
+    # -------------Task1
     # get end postion
     cv_end_pos = Float64MultiArray()
     cv_end_pos.data = self.global_circle_pos["red"]
@@ -92,6 +94,7 @@ class image_converter:
     ja4 = Float64()
     time = rospy.get_time() - self.start_time
 
+
     # =========================================
     # If the accuracy of joint angles not stable enough,
     # maybe you can control by a numerical IK like follows, and set a nearly start point from joint angles estimate
@@ -104,20 +107,29 @@ class image_converter:
     # ja4.data = jas4_cv[3]
     # ==================================
 
-    # create publish var
-
-    # print(time)
     # ja1.data = np.pi * np.sin(np.pi / 15. * time)
-    #
-    #
     # ja2.data = np.pi / 2 * np.sin(np.pi / 15. * time)
-    #
     # ja3.data = np.pi / 2 * np.sin(np.pi / 18. * time)
-    #
     # ja4.data = np.pi / 2 * np.sin(np.pi / 20. * time)  # without direction
-    #
-    jas = np.array([ja1.data, ja2.data, ja3.data, ja4.data])
 
+
+    # jas = np.array([ja1.data, ja2.data, ja3.data, ja4.data])
+    # green_fk = self.K30(jas)
+    # red_fk = self.K40(jas)
+    # self.global_circle_pos["green"] = green_fk
+    # self.global_circle_pos["red"] = red_fk
+
+
+    # ------------Task3 Estimate 4 joints angle
+    # jas_all_esti = self.esti_all_joint_angles()
+    # theta = self.angle_conv_J2T(jas_all_esti)
+    # loss_pub = Float64()
+    # loss_pub.data = self.total_pos_error(theta)
+    # print("loss".format(loss_pub.data))
+    # ja1_esti = jas_all_esti[0]
+    # ja2_esti = jas_all_esti[1]
+    # ja3_esti = jas_all_esti[2]
+    # ja4_esti = jas_all_esti[3]
 
     im2=cv2.imshow('window2', self.cv_image2)
     cv2.waitKey(1)
@@ -137,9 +149,12 @@ class image_converter:
       self.robot_joint_angle4.publish(ja4_esti)
 
       self.target_3Dposition_pub.publish(target_pub)
-
+      self.angle_estim_loss.publish(loss_pub)
     except CvBridgeError as e:
       print(e)
+
+  def total_pos_error(self, q):
+    return np.sum(self.angle_fit_function(q))
 
   def angle_conv_J2T(self, ja):
     ret = np.clip(ja+np.array([pi/2, pi/2, 0, 0]),[-pi/2, 0, -pi/2, -pi/2], [pi/2*3 , pi, pi/2, pi/2])
@@ -323,12 +338,15 @@ class image_converter:
       a3 * cos(theta2) * cos(theta3) * sin(theta1) - a3 * cos(theta1) * sin(theta3),
       a3 * cos(theta3) * sin(theta2) + 5 / 2])
 
-  def K30_for_esti(self, q):
+  def K30_loss(self, q):
     rel_pos = self.K30(q)
     return rel_pos - self.global_circle_pos["green"]
-  def K40_for_esti(self,q):
+
+  def K40_loss(self, q):
     rel_pos = self.K40(q)
-    return rel_pos - self.global_target_pos
+    return rel_pos - self.global_circle_pos["red"]
+
+
 
   def K40(self, q):
     theta1 = q[0]
@@ -422,13 +440,35 @@ class image_converter:
     :return: np array [ja1,ja2,ja3,ja4]
     """
     theta = self.angle_conv_J2T(q)
-    res = least_squares(self.K40_for_esti, (theta[0], theta[1], theta[2], theta[3]), self.jocabian40, bounds=([-pi/2-0.1, 0, -pi/2, -pi/2], [pi/2*3+0.1, pi, pi/2, pi/2]))
+    res = least_squares(self.K40_loss, (theta[0], theta[1], theta[2], theta[3]), self.jocabian40, bounds=([-pi / 2, 0, -pi / 2, -pi / 2], [pi / 2 * 3, pi, pi / 2, pi / 2]))
     theta = res.x
 
     return theta
 
+  def angle_fit_function(self, q):
+    q03 = q[0:3]
+    delta1 = self.K30_loss(q03)
+    delta2 = self.K40_loss(q)
+    return delta1**2+delta2**2
 
+  def angle_fit_jacobian(self, q):
+    j30 = np.concatenate([self.jocabian30(q),np.array([[0],[0],[0]]) ], axis = 1)
+    # print(j30)
+    return j30 + self.jocabian40(q)
 
+  def esti_all_joint_angles(self):
+    # self.global_circle_pos["green"] = np.array([2.9303,1.6185,3.5217])
+    # self.global_circle_pos["red"] = np.array([3.1396,3.1050,6.1191])
+    res = least_squares(self.angle_fit_function, (pi/2,pi/2,0,0),  bounds=([-pi/2, 0, -pi/2, -pi/2], [pi/2*3, pi, pi/2, pi/2]), loss='soft_l1')
+    theta = res.x
+    ja = self.angle_conv_T2J(theta)
+    #
+    # print("theta_esti:{}".format(theta))
+    # print("pos3_real:{}".format(self.K30(np.array([pi/2 + 1, pi/2+1, 1]))))
+    # print("pos3:{}".format(self.K30(theta)))
+    # print("pos4_real:{}".format(self.K40(np.array([pi/2 + 1, pi/2+1, 1, -1]))))
+    # print("pos4:{}".format(self.K40(theta)))
+    return ja
 def main(args):
   ic = image_converter()
   try:
