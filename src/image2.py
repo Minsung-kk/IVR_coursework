@@ -348,8 +348,41 @@ class image_converter:
     res = least_squares(self.angle_fit_function, (pi/2,pi/2,0,0),  bounds=([-pi/2, 0, -pi/2, -pi/2], [pi/2*3, pi, pi/2, pi/2]), loss='soft_l1')
     theta = res.x
     ja = self.angle_conv_T2J(theta)
-
     return ja
+
+  def jocabian40(self, q):
+    theta1 = q[0]
+    theta2 = q[1]
+    theta3 = q[2]
+    theta4 = q[3]
+    a3 = 3.5
+    a4 = 3
+    # generate from matlab
+    Jocabian = np.array([
+      [a4 * cos(theta4) * (cos(theta1) * sin(theta3) - cos(theta2) * cos(theta3) * sin(theta1)) + a3 * cos(
+        theta1) * sin(theta3) - a3 * cos(theta2) * cos(theta3) * sin(theta1) + a4 * sin(theta1) * sin(theta2) * sin(
+        theta4),
+       - a3 * cos(theta1) * cos(theta3) * sin(theta2) - a4 * cos(theta1) * cos(theta2) * sin(theta4) - a4 * cos(
+         theta1) * cos(theta3) * cos(theta4) * sin(theta2),
+       a4 * cos(theta4) * (cos(theta3) * sin(theta1) - cos(theta1) * cos(theta2) * sin(theta3)) + a3 * cos(
+         theta3) * sin(theta1) - a3 * cos(theta1) * cos(theta2) * sin(theta3),
+       - a4 * sin(theta4) * (sin(theta1) * sin(theta3) + cos(theta1) * cos(theta2) * cos(theta3)) - a4 * cos(
+         theta1) * cos(theta4) * sin(theta2)],
+      [a4 * cos(theta4) * (sin(theta1) * sin(theta3) + cos(theta1) * cos(theta2) * cos(theta3)) + a3 * sin(
+        theta1) * sin(theta3) + a3 * cos(theta1) * cos(theta2) * cos(theta3) - a4 * cos(theta1) * sin(theta2) * sin(
+        theta4),
+       - a3 * cos(theta3) * sin(theta1) * sin(theta2) - a4 * cos(theta2) * sin(theta1) * sin(theta4) - a4 * cos(
+         theta3) * cos(theta4) * sin(theta1) * sin(theta2),
+       - a4 * cos(theta4) * (cos(theta1) * cos(theta3) + cos(theta2) * sin(theta1) * sin(theta3)) - a3 * cos(
+         theta1) * cos(theta3) - a3 * cos(theta2) * sin(theta1) * sin(theta3),
+       a4 * sin(theta4) * (cos(theta1) * sin(theta3) - cos(theta2) * cos(theta3) * sin(theta1)) - a4 * cos(
+         theta4) * sin(theta1) * sin(theta2)],
+      [0,
+       a3 * cos(theta2) * cos(theta3) - a4 * sin(theta2) * sin(theta4) + a4 * cos(theta2) * cos(theta3) * cos(theta4),
+       - a3 * sin(theta2) * sin(theta3) - a4 * cos(theta4) * sin(theta2) * sin(theta3),
+       a4 * cos(theta2) * cos(theta4) - a4 * cos(theta3) * sin(theta2) * sin(theta4)]])
+    return Jocabian
+
 def main(args):
   ic = image_converter()
   try:
