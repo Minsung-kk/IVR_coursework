@@ -149,7 +149,7 @@ class image_converter:
       self.robot_joint_angle4.publish(ja4_esti)
 
       self.target_3Dposition_pub.publish(target_pub)
-      self.angle_estim_loss.publish(loss_pub)
+      # self.angle_estim_loss.publish(loss_pub)
     except CvBridgeError as e:
       print(e)
 
@@ -204,24 +204,6 @@ class image_converter:
            "red":red_global}
     return ret
 
-# call the class
-  def move_from(self, ja, start_pos, end_pos):
-    dt = 10
-    delt_angle = np.array([math.pi / 2, math.pi / 2, 0, 0])
-    theta = ja + delt_angle
-    v_point = (end_pos-start_pos) / dt
-    # J, Jp, Jo = self.calcu_jocabian(theta[0], theta[1], theta[2], theta[3])
-    # J = Jp
-    J = self.jocabian40(theta)
-    assert J.shape == (3, 4)
-    J_inv = np.linalg.pinv(J)
-    assert J_inv.shape == (4, 3)
-    q_speed = J_inv.dot(v_point.T)
-    delt_q = q_speed * dt
-    theta = theta + delt_q
-    # convert to global axis
-    ja = theta - delt_angle
-    return ja
 
   def get_T_std(self, alpha, theta, d, a):
     """
@@ -238,94 +220,6 @@ class image_converter:
       [0., math.sin(alpha), math.cos(alpha), d],
       [0, 0, 0, 1]
     ])
-
-  def calcu_jocabian(self,theta1, theta2, theta3, theta4):
-    d1 = 2.5
-    a2 = 0
-    a3 = 3.5
-    a4 = 3
-    T_1_0 = self.get_T_std(alpha=math.pi / 2, a=0, d=d1, theta=theta1)
-    T_2_1 = self.get_T_std(alpha=math.pi / 2, a=a2, d=0, theta=theta2)
-    T_3_2 = self.get_T_std(alpha=-math.pi / 2, a=a3, d=0, theta=theta3)
-    T_4_3 = self.get_T_std(alpha=0, a=a4, d=0, theta=theta4)
-
-    T_2_0 = T_1_0.dot(T_2_1)
-    T_3_0 = T_2_0.dot(T_3_2)
-    T_4_0 = T_3_0.dot(T_4_3)
-
-    z_0 = np.array([0, 0, 1])
-    z_1 = T_1_0[0:3,2]
-    z_2 = T_2_0[0:3,2]
-    z_3 = T_3_0[0:3,2]
-
-    p_0 = np.array([0, 0, 0, 1]).T
-    p_1_0 = T_1_0.dot(p_0)[0:3]
-    p_2_0 = T_2_0.dot(p_0)[0:3]
-    p_3_0 = T_3_0.dot(p_0)[0:3]
-    p_4_0 = T_4_0.dot(p_0)[0:3]
-
-    p_0 = np.array([0,0,0])
-    J_11 = np.cross(z_0, (p_4_0 - p_0))  # the first col
-    J_12 = np.cross(z_1, (p_4_0 - p_1_0))
-    J_13 = np.cross(z_2, (p_4_0 - p_2_0))
-    J_14 = np.cross(z_3, (p_4_0 - p_3_0))
-
-    Jp = np.array([J_11, J_12, J_13, J_14])
-    Jo = np.array([z_0, z_1, z_2, z_3])
-    J = np.concatenate([Jp, Jo], axis=-1).T
-    Jp = Jp.T
-    Jo = Jo.T
-    return J,Jp, Jo
-
-
-  def jocabian40(self, q):
-    theta1 = q[0]
-    theta2 = q[1]
-    theta3 = q[2]
-    theta4 = q[3]
-    a3 = 3.5
-    a4 = 3
-    # generate from matlab
-    Jocabian = np.array([
-      [a4 * cos(theta4) * (cos(theta1) * sin(theta3) - cos(theta2) * cos(theta3) * sin(theta1)) + a3 * cos(
-        theta1) * sin(theta3) - a3 * cos(theta2) * cos(theta3) * sin(theta1) + a4 * sin(theta1) * sin(theta2) * sin(
-        theta4),
-       - a3 * cos(theta1) * cos(theta3) * sin(theta2) - a4 * cos(theta1) * cos(theta2) * sin(theta4) - a4 * cos(
-         theta1) * cos(theta3) * cos(theta4) * sin(theta2),
-       a4 * cos(theta4) * (cos(theta3) * sin(theta1) - cos(theta1) * cos(theta2) * sin(theta3)) + a3 * cos(
-         theta3) * sin(theta1) - a3 * cos(theta1) * cos(theta2) * sin(theta3),
-       - a4 * sin(theta4) * (sin(theta1) * sin(theta3) + cos(theta1) * cos(theta2) * cos(theta3)) - a4 * cos(
-         theta1) * cos(theta4) * sin(theta2)],
-      [a4 * cos(theta4) * (sin(theta1) * sin(theta3) + cos(theta1) * cos(theta2) * cos(theta3)) + a3 * sin(
-        theta1) * sin(theta3) + a3 * cos(theta1) * cos(theta2) * cos(theta3) - a4 * cos(theta1) * sin(theta2) * sin(
-        theta4),
-       - a3 * cos(theta3) * sin(theta1) * sin(theta2) - a4 * cos(theta2) * sin(theta1) * sin(theta4) - a4 * cos(
-         theta3) * cos(theta4) * sin(theta1) * sin(theta2),
-       - a4 * cos(theta4) * (cos(theta1) * cos(theta3) + cos(theta2) * sin(theta1) * sin(theta3)) - a3 * cos(
-         theta1) * cos(theta3) - a3 * cos(theta2) * sin(theta1) * sin(theta3),
-       a4 * sin(theta4) * (cos(theta1) * sin(theta3) - cos(theta2) * cos(theta3) * sin(theta1)) - a4 * cos(
-         theta4) * sin(theta1) * sin(theta2)],
-      [0,
-       a3 * cos(theta2) * cos(theta3) - a4 * sin(theta2) * sin(theta4) + a4 * cos(theta2) * cos(theta3) * cos(theta4),
-       - a3 * sin(theta2) * sin(theta3) - a4 * cos(theta4) * sin(theta2) * sin(theta3),
-       a4 * cos(theta2) * cos(theta4) - a4 * cos(theta3) * sin(theta2) * sin(theta4)]])
-    return Jocabian
-
-
-  def jocabian30(self, q):
-    theta1 = q[0]
-    theta2 = q[1]
-    theta3 = q[2]
-    a3 = 3.5
-    # generate from matlab
-    return np.array([
-      [a3 * cos(theta1) * sin(theta3) - a3 * cos(theta2) * cos(theta3) * sin(theta1),
-       -a3 * cos(theta1) * cos(theta3) * sin(theta2),
-       a3 * cos(theta3) * sin(theta1) - a3 * cos(theta1) * cos(theta2) * sin(theta3)],
-      [a3 * sin(theta1) * sin(theta3) + a3 * cos(theta1) * cos(theta2) * cos(theta3),
-       -a3 * cos(theta3) * sin(theta1) * sin(theta2),
-       - a3 * cos(theta1) * cos(theta3) - a3 * cos(theta2) * sin(theta1) * sin(theta3)],
-      [0, a3 * cos(theta2) * cos(theta3), -a3 * sin(theta2) * sin(theta3)]])
 
   def K30(self, q):
     theta1 = q[0]
@@ -428,7 +322,6 @@ class image_converter:
     inv_flag = 0
     if v_c[0] < 0: # because the direct is about x axis
       ja4 = -ja4
-
     return np.array([0, ja2, ja3, ja4])
 
 
@@ -451,23 +344,11 @@ class image_converter:
     delta2 = self.K40_loss(q)
     return delta1**2+delta2**2
 
-  def angle_fit_jacobian(self, q):
-    j30 = np.concatenate([self.jocabian30(q),np.array([[0],[0],[0]]) ], axis = 1)
-    # print(j30)
-    return j30 + self.jocabian40(q)
-
   def esti_all_joint_angles(self):
-    # self.global_circle_pos["green"] = np.array([2.9303,1.6185,3.5217])
-    # self.global_circle_pos["red"] = np.array([3.1396,3.1050,6.1191])
     res = least_squares(self.angle_fit_function, (pi/2,pi/2,0,0),  bounds=([-pi/2, 0, -pi/2, -pi/2], [pi/2*3, pi, pi/2, pi/2]), loss='soft_l1')
     theta = res.x
     ja = self.angle_conv_T2J(theta)
-    #
-    # print("theta_esti:{}".format(theta))
-    # print("pos3_real:{}".format(self.K30(np.array([pi/2 + 1, pi/2+1, 1]))))
-    # print("pos3:{}".format(self.K30(theta)))
-    # print("pos4_real:{}".format(self.K40(np.array([pi/2 + 1, pi/2+1, 1, -1]))))
-    # print("pos4:{}".format(self.K40(theta)))
+
     return ja
 def main(args):
   ic = image_converter()
