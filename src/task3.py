@@ -17,96 +17,93 @@ class image_converter:
   def __init__(self):
     # initialize the node named image_processing
     rospy.init_node('image_processing', anonymous=True)
+    # initialize the bridge between openCV and ROS
+    self.bridge = CvBridge()
+
+    # subscribe images
+    self.image_pub1 = rospy.Publisher("image_topic1",Image, queue_size = 1)
+    self.image_pub2 = rospy.Publisher("image_topic2",Image, queue_size = 1)
+    self.image_sub1 = rospy.Subscriber("/camera1/robot/image_raw",Image,self.callback_image1)
+    self.image_sub2 = rospy.Subscriber("/camera2/robot/image_raw",Image,self.callback_image2)    
+
     # joint control
     self.robot_joint1_pub = rospy.Publisher("/robot/joint1_position_controller/command", Float64, queue_size=10)
     self.robot_joint2_pub = rospy.Publisher("/robot/joint2_position_controller/command", Float64, queue_size=10)
     self.robot_joint3_pub = rospy.Publisher("/robot/joint3_position_controller/command", Float64, queue_size=10)
     self.robot_joint4_pub = rospy.Publisher("/robot/joint4_position_controller/command", Float64, queue_size=10)
 
-    # subscribe robot joint angles
-    self.robot_joint_angle1_sub = rospy.Subscriber("joint_angle1_cv", Float64, self.callback_ja1)
-    self.robot_joint_angle2_sub = rospy.Subscriber("joint_angle2_cv", Float64, self.callback_ja2)
-    self.robot_joint_angle3_sub = rospy.Subscriber("joint_angle3_cv", Float64, self.callback_ja3)
-    self.robot_joint_angle4_sub = rospy.Subscriber("joint_angle4_cv", Float64, self.callback_ja4)
+    # publish end-effector position for plot
+    self.ee_pos_x_pub = rospy.Publisher("end_effector_x", Float64, queue_size=10)
+    self.ee_pos_y_pub = rospy.Publisher("end_effector_y", Float64, queue_size=10)
+    self.ee_pos_z_pub = rospy.Publisher("end_effector_z", Float64, queue_size=10)
 
+    # 
+    self.target_position_pub = rospy.Publisher("target_position", Float64MultiArray, queue_size=10)
+    self.target_position_sub = rospy.Subscriber("target_position", Float64MultiArray, self.callback_target_position)
     # actual robot joint angles
     self.joint_states_sub = rospy.Subscriber("/robot/joint_states", JointState, self.callback_joint_states)
     self.joint_states_pub = rospy.Publisher("/jss", Float64MultiArray, queue_size=10)
-    # subscribe end-effector positon via vision
-    self.cv_end_pos_sub = rospy.Subscriber("cv_end_pos", Float64MultiArray, self.callback_cv_end_pos)
+
     # publish end-effector position via forward kinematics 
     self.end_effector_position_fk_pub = rospy.Publisher("ee_fk", Float64MultiArray, queue_size = 10)
-
-    # subscribe target position by vision for closed-loop control
-    self.target_position_sub = rospy.Subscriber("/target/position_estimation", Float64MultiArray, self.callback)
-    # subscribe actual end-effector and target position to test
-    # self.ee_sub = rospy.Subscriber("/target/joint_states", Float64MultiArray, self.callback_tp)
-    # self.tp_sub = rospy.Subscriber("/target/joint_states", Float64MultiArray, self.callback_tp)
 
     # record the begining time
     self.time_trajectory = rospy.get_time()
     # initialize errors
     self.time_previous_step = np.array([rospy.get_time()], dtype='float64')
-    # erros
+    # errors
     self.error = np.zeros(3, dtype='float64')  
     self.error_d = np.zeros(3, dtype='float64') 
-    
-    self.joint_angle1 = 0.0
-    self.joint_angle2 = 0.0
-    self.joint_angle3 = 0.0
-    self.joint_angle4 = 0.0
-    # self.positions = [.1,.1,.1,.1]
-    # initialize the bridge between openCV and ROS
-    self.bridge = CvBridge()
-  # def callback_cv_end_pos(self, data):
-  #   self.cv_end_pos = data.data
-  # def callback_tp(self, data):
-  #   self.tp = np.array(data.data[0])
-  def callback_cv_end_pos(self, data):
-    try:
-      self.cv_end_pos = np.array(data.data)
-    except Exception as e:
-      print(e)
-  def callback_ja1(self, data):
-    try:
-      self.joint_angle1 = data.data
-    except Exception as e:
-      print(e)
-  def callback_ja2(self, data):
-    try:
-      self.joint_angle2 = data.data
-    except Exception as e:
-      print(e)
-  def callback_ja3(self, data):
-    try:
-      self.joint_angle3 = data.data
-    except Exception as e:
-      print(e)
-  def callback_ja4(self, data):
-    try:
-      self.joint_angle4 = data.data
-    except Exception as e:
-      print(e)
+    # template target
+    self.template = cv2.imread("image_crop.png", 0)
+    self.global_target_pos = np.zeros(3, dtype='float64')
+    self.pos = np.zeros(3, dtype='float64')
 
   def callback_joint_states(self, data):
-    self.pos = Float64MultiArray()
-    self.pos = data.position
-    # self.joint_states_pub.publish(pos)
+    self.joint_states_origin = data.position
+    joint_states_pub = Float64MultiArray()
+    joint_states_pub.data = self.joint_states_origin
+    self.joint_states_pub.publish(joint_states_pub)
+  # get images
+  def callback_image1(self, data):
+    try:
+      self.cv_image1 = self.bridge.imgmsg_to_cv2(data, "bgr8")
+    except CvBridgeError as e:
+      print(e)
+    self.image_pub1.publish(self.bridge.cv2_to_imgmsg(self.cv_image1, "bgr8"))
+  def callback_image2(self, data):
+    try:
+      self.cv_image2 = self.bridge.imgmsg_to_cv2(data, "bgr8")
+    except CvBridgeError as e:
+      print(e)
+    self.image_pub2.publish(self.bridge.cv2_to_imgmsg(self.cv_image2, "bgr8"))
 
-  def callback(self, data):
-    self.target_pos = np.array(data.data)
-    self.joint_angles_cv = np.array([self.joint_angle1, self.joint_angle2, self.joint_angle3, self.joint_angle4])
+    x_cam_pos = self.get_cirlces()
+    self.x_cam_pos_yellow = x_cam_pos[0:2]
+    self.x_cam_pos_blue = x_cam_pos[2:4]
+    self.x_cam_pos_green = x_cam_pos[4:6]
+    self.x_cam_pos_red = x_cam_pos[6:8]
+    self.x_cam_pos_tar = x_cam_pos[8:10]
+    self.global_circle_pos = self.estimate_global_pos(self.cv_image2)
+    self.global_target_pos = self.estimate_target_3Dposition()
+    tar_pos = Float64MultiArray()
+    tar_pos.data = self.global_target_pos
+    self.target_position_pub.publish(tar_pos)
 
-    # end-effecor position by forward kinematics
-    # cur_time = rospy.get_time() - self.time_trajectory
-    # joint_angles = self.joint_angles_a
-    # self.cv_end_pos = np.array(data.data)
-    # tm = self.T_matrices(joint_angles)
-    # self.end_pos_fk = self.forward_kinematics(tm)
-    # fk_pub = Float64MultiArray()
-    # fk_pub.data = self.fk_trajectory[:3,3]
+
+  def callback_target_position(self, data):
+    tar_pos = np.array(data.data)
     # closed_loop
-    q_d = self.control_closed()
+    t_m = self.T_matrices(self.joint_states_origin)
+    ee_pos = self.forward_kinematics(t_m)
+    self.ee_pos_x = Float64()
+    self.ee_pos_x.data = ee_pos[0]
+    self.ee_pos_y = Float64()
+    self.ee_pos_y.data = ee_pos[1]
+    self.ee_pos_z = Float64()
+    self.ee_pos_z.data = ee_pos[2]
+
+    q_d = self.control_closed(ee_pos, tar_pos)
     self.joint1=Float64()
     self.joint1.data= q_d[0]
     self.joint2=Float64()
@@ -122,9 +119,88 @@ class image_converter:
       self.robot_joint2_pub.publish(self.joint2)
       self.robot_joint3_pub.publish(self.joint3)
       self.robot_joint4_pub.publish(self.joint4)
+      self.ee_pos_x_pub.publish(self.ee_pos_x)
+      self.ee_pos_y_pub.publish(self.ee_pos_y)
+      self.ee_pos_z_pub.publish(self.ee_pos_z)
     except CvBridgeError as e:
       print(e)
-  
+
+  def get_cirlces(self):
+    # x cam position
+    # x_cam_pos = Float64MultiArray()
+    yellow_pos = cv_utils.detect_yellow(self.cv_image1)
+    blue_pos = cv_utils.detect_blue(self.cv_image1)
+    green_pos = cv_utils.detect_green(self.cv_image1)
+    red_pos = cv_utils.detect_red(self.cv_image1)
+    mask = cv_utils.detect_orange(self.cv_image1)
+    orange_pos = cv_utils.find_target(mask, self.template)
+    x_cam_pos = np.array(
+      [yellow_pos[0], yellow_pos[1], blue_pos[0], blue_pos[1], green_pos[0], green_pos[1], red_pos[0], red_pos[1],
+       orange_pos[0], orange_pos[1]])
+    return x_cam_pos
+
+  # don't use thhis alone
+  def get_global_pos(self, x_cam_pos, y_cam_pos, x_cam_pos_yellow, y_cam_pos_yellow, a):
+    if x_cam_pos[0] == -1:
+      x = a * (y_cam_pos[0] - y_cam_pos_yellow[0])
+      y = 0
+      z = -a * (y_cam_pos[1] - y_cam_pos_yellow[1])
+    elif y_cam_pos[0] == -1:
+      x = 0
+      y = a * (x_cam_pos[0] - x_cam_pos_yellow[0])
+      z = -a * (x_cam_pos[1] - x_cam_pos_yellow[1])
+    else:
+      x = a * (y_cam_pos[0] - y_cam_pos_yellow[0])
+      y = a * (x_cam_pos[0] - x_cam_pos_yellow[0])
+      z = -a * (x_cam_pos[1] - y_cam_pos_yellow[1])
+
+    ret = np.array([x, y, z])
+    return ret
+
+  def estimate_global_pos(self, image):
+    """
+    Estimate all Joints positions
+    :param image:
+    :return: Directionary
+    """
+    self.y_cam_pos_yellow = cv_utils.detect_yellow(self.cv_image2)
+    self.y_cam_pos_blue = cv_utils.detect_blue(self.cv_image2)
+    self.y_cam_pos_green = cv_utils.detect_green(self.cv_image2)
+    self.y_cam_pos_red = cv_utils.detect_red(self.cv_image2)
+    a =cv_utils.pixel2meter(image)
+    yellow_global = np.array([0,0,0])
+    blue_global = np.array([0,0,2.5])
+    # green circle, Not visiable in camera x
+    green_global = self.get_global_pos(self.x_cam_pos_green, self.y_cam_pos_green, self.x_cam_pos_yellow, self.y_cam_pos_yellow,a)
+    red_global = self.get_global_pos(self.x_cam_pos_red, self.y_cam_pos_red, self.x_cam_pos_yellow, self.y_cam_pos_yellow, a)
+    ret = {"yellow":yellow_global,
+           "blue":blue_global,
+           "green":green_global,
+           "red":red_global}
+    return ret
+
+  def estimate_target_3Dposition(self):
+    """
+    Estimate the target orange ball
+    :return: [x,y,z]
+    """
+    a = cv_utils.pixel2meter(self.cv_image2)
+    orange_mask = cv_utils.detect_orange(self.cv_image2)
+    target_proj_pos2 = cv_utils.find_target(orange_mask, self.template)
+    target_proj_pos2[0] = target_proj_pos2[0] + 24  # the temeple is 48*48
+    target_proj_pos2[1] = target_proj_pos2[1] + 24
+    # mark the target with a red circle
+    # cv2.circle(self.cv_image2, (target_proj_pos2[0], target_proj_pos2[1]),5,(0,0,255))
+    target_x = (target_proj_pos2[0] - self.y_cam_pos_yellow[0]) * a * 0.8
+    target_x = np.clip(target_x, -3, 3)
+    target_y = (self.x_cam_pos_tar[0] - self.x_cam_pos_yellow[0]) * a * 0.9 + 1.7  # the 1.7 is camera view offset
+    # target_y = target_y * 0.8
+    target_y = np.clip(target_y, -2.5, 2.5)
+    target_z = (self.x_cam_pos_yellow[1] - self.x_cam_pos_tar[1]) * a
+    target_z = (target_z - 7) * 0.8 + 7 - 0.5
+    target_z = np.clip(target_z, 6, 8)
+    return np.array([target_x, target_y, target_z])
+
   # given angle
   def trajectory_joint_angles(self, time):
     # a1 = 180*np.sin(np.pi/15*t)
@@ -171,7 +247,7 @@ class image_converter:
     temp = np.identity(4)
     for i in Ts:
       temp = np.dot(temp, i)
-    return np.array(temp)
+    return np.array(temp[:3,3])
 
   # Jacobian using transformation matrices
   def jacobian(self, Ts):
@@ -225,10 +301,10 @@ class image_converter:
       #   jacobian[k+3][i] = rotation[k]
     return jacobian
 
-  def control_closed(self):
+  def control_closed(self, ee_pos, tar_pos):
     # p and d gains
-    p = 15
-    d = 0.5
+    p = 1
+    d = 0.2
     # diagonal matrices
     K_p = np.zeros((3,3))
     K_d = np.zeros((3,3))
@@ -239,23 +315,13 @@ class image_converter:
     dt = cur_time - self.time_previous_step
     self.time_previous_step = cur_time
 
-    tm = self.T_matrices(self.pos)
-    fk = self.forward_kinematics(tm)
-
-    # robot end-effector position
-
-    pos = fk[:3,3]
-    pos_pub = Float64MultiArray()
-    pos_pub.data = pos
-    self.end_effector_position_fk_pub.publish(pos_pub)
-    # pos = self.cv_end_pos
-    # desired trajectory
-    pos_d = self.target_pos
+    pos = ee_pos
+    pos_d = tar_pos
     # estimate derivative of error
     self.error_d = ((pos_d - pos) - self.error)/dt
     # estimate error
     self.error = pos_d-pos
-    q = self.joint_angles_cv # estimate initial value of joints'
+    q = self.joint_states_origin # estimate initial value of joints'
     t_m = self.T_matrices(q)
     j = self.jacobian(t_m)
     J_inv = np.linalg.pinv(j)  # calculating the psudeo inverse of Jacobian
