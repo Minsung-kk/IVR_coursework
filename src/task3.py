@@ -20,7 +20,7 @@ class image_converter:
     # initialize the bridge between openCV and ROS
     self.bridge = CvBridge()
 
-    # subscribe images
+    # publish and subscribe images
     self.image_pub1 = rospy.Publisher("image_topic1",Image, queue_size = 1)
     self.image_pub2 = rospy.Publisher("image_topic2",Image, queue_size = 1)
     self.image_sub1 = rospy.Subscriber("/camera1/robot/image_raw",Image,self.callback_image1)
@@ -37,15 +37,18 @@ class image_converter:
     self.ee_pos_y_pub = rospy.Publisher("end_effector_y", Float64, queue_size=10)
     self.ee_pos_z_pub = rospy.Publisher("end_effector_z", Float64, queue_size=10)
 
-    # 
+    # publish and subscribe the target position
     self.target_position_pub = rospy.Publisher("target_position", Float64MultiArray, queue_size=10)
     self.target_position_sub = rospy.Subscriber("target_position", Float64MultiArray, self.callback_target_position)
+
     # actual robot joint angles
     self.joint_states_sub = rospy.Subscriber("/robot/joint_states", JointState, self.callback_joint_states)
     self.joint_states_pub = rospy.Publisher("/jss", Float64MultiArray, queue_size=10)
 
-    # publish end-effector position via forward kinematics 
-    self.end_effector_position_fk_pub = rospy.Publisher("ee_fk", Float64MultiArray, queue_size = 10)
+    # task 3.1: vision estimation and forward kinematics estimation
+    self.ee_pos_cv_pub = rospy.Publisher("/ee_pos_cv", Float64MultiArray, queue_size=10)
+    self.ee_pos_fk_pub = rospy.Publisher("/ee_pos_fk", Float64MultiArray, queue_size=10)
+
 
     # record the begining time
     self.time_trajectory = rospy.get_time()
@@ -78,6 +81,7 @@ class image_converter:
       print(e)
     self.image_pub2.publish(self.bridge.cv2_to_imgmsg(self.cv_image2, "bgr8"))
 
+    # find the target position via vision
     x_cam_pos = self.get_cirlces()
     self.x_cam_pos_yellow = x_cam_pos[0:2]
     self.x_cam_pos_blue = x_cam_pos[2:4]
@@ -86,22 +90,33 @@ class image_converter:
     self.x_cam_pos_tar = x_cam_pos[8:10]
     self.global_circle_pos = self.estimate_global_pos(self.cv_image2)
     self.global_target_pos = self.estimate_target_3Dposition()
+    cv_end_pos = Float64MultiArray()
+    cv_end_pos.data = self.global_circle_pos["red"]
     tar_pos = Float64MultiArray()
     tar_pos.data = self.global_target_pos
-    self.target_position_pub.publish(tar_pos)
-
+    # Publish the results
+    try:
+      self.ee_pos_cv_pub.publish(cv_end_pos)
+      self.target_position_pub.publish(tar_pos)
+    except CvBridgeError as e:
+      print(e)
 
   def callback_target_position(self, data):
     tar_pos = np.array(data.data)
-    # closed_loop
+    # closed-loop
     t_m = self.T_matrices(self.joint_states_origin)
     ee_pos = self.forward_kinematics(t_m)
+    # save the end-effector position data to publish
+    self.ee_pos_fk = Float64MultiArray()
+    self.ee_pos_fk.data = ee_pos 
     self.ee_pos_x = Float64()
     self.ee_pos_x.data = ee_pos[0]
     self.ee_pos_y = Float64()
     self.ee_pos_y.data = ee_pos[1]
     self.ee_pos_z = Float64()
     self.ee_pos_z.data = ee_pos[2]
+
+    # closed-loop joint angles
 
     q_d = self.control_closed(ee_pos, tar_pos)
     self.joint1=Float64()
@@ -113,18 +128,20 @@ class image_converter:
     self.joint4=Float64()
     self.joint4.data= q_d[3]
 
+    # publish the robot using the joint angles via closed-loop and the end-effector position
     try:
-      # self.end_effector_position_fk_pub.publish(fk_pub)
       self.robot_joint1_pub.publish(self.joint1)
       self.robot_joint2_pub.publish(self.joint2)
       self.robot_joint3_pub.publish(self.joint3)
       self.robot_joint4_pub.publish(self.joint4)
+      self.ee_pos_fk_pub.publish(self.ee_pos_fk)
       self.ee_pos_x_pub.publish(self.ee_pos_x)
       self.ee_pos_y_pub.publish(self.ee_pos_y)
       self.ee_pos_z_pub.publish(self.ee_pos_z)
     except CvBridgeError as e:
       print(e)
 
+  # find the position of objects from image1
   def get_cirlces(self):
     # x cam position
     # x_cam_pos = Float64MultiArray()
@@ -315,7 +332,9 @@ class image_converter:
     dt = cur_time - self.time_previous_step
     self.time_previous_step = cur_time
 
+    # end-effector position
     pos = ee_pos
+    # target position
     pos_d = tar_pos
     # estimate derivative of error
     self.error_d = ((pos_d - pos) - self.error)/dt
@@ -327,12 +346,8 @@ class image_converter:
     J_inv = np.linalg.pinv(j)  # calculating the psudeo inverse of Jacobian
     dq_d =np.dot(J_inv, ( np.dot(K_d,self.error_d.transpose()) + np.dot(K_p,self.error.transpose())))  # control input (angular velocity of joints)
     q_d = q + (dt * dq_d)  # control input (angular position of joints)
-    # assume joint angle 0 is 0
-    # q_d[0] = 0
     return q_d
     
-
-
 # call the class
 def main(args):
   ic = image_converter()
