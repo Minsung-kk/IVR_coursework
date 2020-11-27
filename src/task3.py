@@ -210,7 +210,7 @@ class image_converter:
     D_0 = np.array(D_0)
 
     # Jacobian
-    jacobian = np.zeros((6,4))
+    jacobian = np.zeros((3,4))
     z = np.array([0, 0, 1])
     for i in range(len(Ts)):
       # Linear part
@@ -220,18 +220,18 @@ class image_converter:
       for j in range(3):
         jacobian[j][i] = linear[j] 
       # Rotation part
-      rotation = np.dot(R_0[i], z)
-      for k in range(3):
-        jacobian[k+3][i] = rotation[k]
+      # rotation = np.dot(R_0[i], z)
+      # for k in range(3):
+      #   jacobian[k+3][i] = rotation[k]
     return jacobian
 
   def control_closed(self):
     # p and d gains
-    p = 40
-    d = 0.1
+    p = 15
+    d = 0.5
     # diagonal matrices
-    K_p = np.zeros((6,3))
-    K_d = np.zeros((6,3))
+    K_p = np.zeros((3,3))
+    K_d = np.zeros((3,3))
     np.fill_diagonal(K_p, p)
     np.fill_diagonal(K_d, d)
     # estimate time step
