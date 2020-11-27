@@ -6,7 +6,7 @@ import rospy
 import cv2
 import numpy as np
 from std_msgs.msg import String
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, JointState
 from std_msgs.msg import Float64MultiArray, Float64
 from cv_bridge import CvBridge, CvBridgeError
 import cv_utils
@@ -28,6 +28,10 @@ class image_converter:
     self.robot_joint_angle2_sub = rospy.Subscriber("joint_angle2_cv", Float64, self.callback_ja2)
     self.robot_joint_angle3_sub = rospy.Subscriber("joint_angle3_cv", Float64, self.callback_ja3)
     self.robot_joint_angle4_sub = rospy.Subscriber("joint_angle4_cv", Float64, self.callback_ja4)
+
+    # actual robot joint angles
+    self.joint_states_sub = rospy.Subscriber("/robot/joint_states", JointState, self.callback_joint_states)
+    self.joint_states_pub = rospy.Publisher("/jss", Float64MultiArray, queue_size=10)
     # subscribe end-effector positon via vision
     self.cv_end_pos_sub = rospy.Subscriber("cv_end_pos", Float64MultiArray, self.callback_cv_end_pos)
     # publish end-effector position via forward kinematics 
@@ -47,7 +51,11 @@ class image_converter:
     self.error = np.zeros(3, dtype='float64')  
     self.error_d = np.zeros(3, dtype='float64') 
     
-
+    self.joint_angle1 = 0.0
+    self.joint_angle2 = 0.0
+    self.joint_angle3 = 0.0
+    self.joint_angle4 = 0.0
+    # self.positions = [.1,.1,.1,.1]
     # initialize the bridge between openCV and ROS
     self.bridge = CvBridge()
   # def callback_cv_end_pos(self, data):
@@ -55,15 +63,36 @@ class image_converter:
   # def callback_tp(self, data):
   #   self.tp = np.array(data.data[0])
   def callback_cv_end_pos(self, data):
-    self.cv_end_pos = np.array(data.data)
+    try:
+      self.cv_end_pos = np.array(data.data)
+    except Exception as e:
+      print(e)
   def callback_ja1(self, data):
-    self.joint_angle1 = data.data
+    try:
+      self.joint_angle1 = data.data
+    except Exception as e:
+      print(e)
   def callback_ja2(self, data):
-    self.joint_angle2 = data.data
+    try:
+      self.joint_angle2 = data.data
+    except Exception as e:
+      print(e)
   def callback_ja3(self, data):
-    self.joint_angle3 = data.data
+    try:
+      self.joint_angle3 = data.data
+    except Exception as e:
+      print(e)
   def callback_ja4(self, data):
-    self.joint_angle4 = data.data
+    try:
+      self.joint_angle4 = data.data
+    except Exception as e:
+      print(e)
+
+  def callback_joint_states(self, data):
+    self.pos = Float64MultiArray()
+    self.pos = data.position
+    # self.joint_states_pub.publish(pos)
+
   def callback(self, data):
     self.target_pos = np.array(data.data)
     self.joint_angles_cv = np.array([self.joint_angle1, self.joint_angle2, self.joint_angle3, self.joint_angle4])
@@ -198,24 +227,27 @@ class image_converter:
 
   def control_closed(self):
     # p and d gains
-    p = 20
-    d = 6
+    p = 40
+    d = 0.1
+    # diagonal matrices
     K_p = np.zeros((6,3))
     K_d = np.zeros((6,3))
     np.fill_diagonal(K_p, p)
     np.fill_diagonal(K_d, d)
-
-    # ([[3, 0, 0],[0, 3, 0],[0, 0, 3], 
-    #   [3,0,0], [0,3,0], [0,0,3]] )
-    # K_d = np.array([[0.2,0,0],[0,0.2,0],[0,0,0.2], 
-    #   [0.2,0,0], [0,0.2,0], [0,0,0.2]])
-
     # estimate time step
     cur_time = np.array([rospy.get_time()])
     dt = cur_time - self.time_previous_step
     self.time_previous_step = cur_time
+
+    tm = self.T_matrices(self.pos)
+    fk = self.forward_kinematics(tm)
+
     # robot end-effector position
-    pos = self.cv_end_pos
+
+    pos = fk[:3,3]
+    pos_pub = Float64MultiArray()
+    pos_pub.data = pos
+    self.end_effector_position_fk_pub.publish(pos_pub)
     # pos = self.cv_end_pos
     # desired trajectory
     pos_d = self.target_pos
@@ -229,6 +261,8 @@ class image_converter:
     J_inv = np.linalg.pinv(j)  # calculating the psudeo inverse of Jacobian
     dq_d =np.dot(J_inv, ( np.dot(K_d,self.error_d.transpose()) + np.dot(K_p,self.error.transpose())))  # control input (angular velocity of joints)
     q_d = q + (dt * dq_d)  # control input (angular position of joints)
+    # assume joint angle 0 is 0
+    # q_d[0] = 0
     return q_d
     
 
